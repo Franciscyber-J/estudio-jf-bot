@@ -53,25 +53,21 @@ const CONFIG = Object.freeze({
     TYPING_DELAY_PER_CHAR: 10,
     DEFAULT_TYPING_DURATION: 1500,
     LOAD_SAVE_DELAY: 150,
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Adicionada lógica de fallback. O bot usará as variáveis de ambiente se existirem,
-    // caso contrário, usará os valores fixos no código. Isso garante que o bot funcione
-    // mesmo sem um arquivo .env configurado.
+    // ARQUITETO: As configurações do Telegram agora dependem exclusivamente do arquivo .env.
     TELEGRAM_CONFIGS: [
         { 
             NAME: "Principal", 
-            BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_PRINCIPAL || '7627049345:AAGurPOQFpf2chF7siRk59qFOB-pziAmn5Y', 
-            CHAT_ID: process.env.TELEGRAM_CHAT_ID_PRINCIPAL || '6246515644', 
+            BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_PRINCIPAL, 
+            CHAT_ID: process.env.TELEGRAM_CHAT_ID_PRINCIPAL, 
             TIMEZONE: 'America/Sao_Paulo' 
         },
         { 
             NAME: "Secundario", 
-            BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_SECUNDARIO || '7730351379:AAFVjJq0Ch8UvLm9NGGtdP4PSjzL7-218j4', 
-            CHAT_ID: process.env.TELEGRAM_CHAT_ID_SECUNDARIO || '5183023127', 
+            BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_SECUNDARIO, 
+            CHAT_ID: process.env.TELEGRAM_CHAT_ID_SECUNDARIO, 
             TIMEZONE: 'America/Sao_Paulo' 
         }
     ],
-    // ##################### FIM DA CORREÇÃO ######################
 });
 
 const MENSAGENS_ESTADO_PASSIVO = Object.freeze({
@@ -546,7 +542,7 @@ async function displayAgendamentoModeMenu(msg, chat) {
     console.log(`[INFO] [displayAgendamentoModeMenu] Exibindo para ${chatId}.`);
     try {
         const promptMsg = "🗓️ Ótimo! Como você prefere que seja essa conversa inicial sobre o projeto?";
-        const optionsMsg = `• *💻 1. Online:* Realizada por videochamada (Google Meet, Zoom, etc.).\n\n• *� 2. Presencial:* Em nosso escritório.\n\nDigite o número da modalidade desejada ou *menu* para voltar.`;
+        const optionsMsg = `• *💻 1. Online:* Realizada por videochamada (Google Meet, Zoom, etc.).\n\n• *🏢 2. Presencial:* Em nosso escritório.\n\nDigite o número da modalidade desejada ou *menu* para voltar.`;
         await sendMessageWithTyping(chat, promptMsg); await delay(500);
         await sendMessageWithTyping(chat, optionsMsg);
         await updateChatState(chatId, { currentState: STATES.AGUARDANDO_MODO_AGENDAMENTO, menuDisplayed: false, inOrcamento: false });
@@ -945,19 +941,40 @@ client.on('ready', async () => {
     if (client.info?.wid?._serialized) {
         botPhoneNumber = client.info.wid._serialized; console.log(`[INFO]   > Número Bot: ${botPhoneNumber}`);
     } else { console.error("[ERROR] [FATAL] Falha crítica ao obter informações do cliente. Encerrando."); process.exit(1); }
-    botStartTime = Date.now(); console.log('[INFO] --- DEBUG: loadBotState ---'); await loadBotState();
-    console.log('[INFO] --- DEBUG: loadBotState concluído ---'); botReady = true;
-    const startupMessage = `🚀 Bot Estúdio JF (WhatsApp) Iniciado\nVersão: ${escapeMarkdown(CONFIG.BOT_STATE_FILE.match(/v[\d.]+/)?.[0] || 'N/A')}\nOnline desde: ${escapeMarkdown(new Date(botStartTime).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }))}`;
+    botStartTime = Date.now(); 
+    console.log('[INFO] --- DEBUG: loadBotState ---'); 
+    await loadBotState();
+    console.log('[INFO] --- DEBUG: loadBotState concluído ---'); 
+    botReady = true;
+    
+    const startupText = `🚀 Bot Estúdio JF (WhatsApp) Iniciado`;
+    const versionText = `Versão: ${CONFIG.BOT_STATE_FILE.match(/v[\d.]+/)?.[0] || 'N/A'}`;
+    const onlineSinceText = `Online desde: ${new Date(botStartTime).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
+    
+    const startupMessageForTelegram = `${escapeMarkdown(startupText)}\n${escapeMarkdown(versionText)}\n${escapeMarkdown(onlineSinceText)}`;
+    const startupMessageForConsole = `${startupText}\n${versionText}\n${onlineSinceText}`;
+
     console.log(`[DEBUG] PONTO DE ENVIO: Notificação "BOT ONLINE" prestes a ser enviada.`);
-    enviarNotificacaoTelegram(startupMessage, "✅ BOT ONLINE"); console.log(`[INFO] ${startupMessage}`); await saveBotState();
+    enviarNotificacaoTelegram(startupMessageForTelegram, "✅ BOT ONLINE"); 
+    console.log(`[INFO] ${startupMessageForConsole}`); 
+    await saveBotState();
 });
 
 client.on('disconnected', async (reason) => {
     console.log(`[WARN] [ Desconectado] Cliente desconectado: ${reason}`);
-    const escapedReason = escapeMarkdown(String(reason));
-    enviarNotificacaoTelegram(`🔴 Bot Estúdio JF (WhatsApp) Desconectado\nMotivo: ${escapedReason}\nData/Hora: ${escapeMarkdown(new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }))}`, "⚠️ BOT OFFLINE");
-    botReady = false; botPhoneNumber = null; console.log('[INFO] [ Desconectado] Tentando salvar estado...');
-    await saveBotState(); console.log('[INFO] [ Desconectado] Estado salvo (ou tentativa concluída).');
+    
+    const disconnectText = '🔴 Bot Estúdio JF (WhatsApp) Desconectado';
+    const reasonText = `Motivo: ${String(reason)}`;
+    const dateTimeText = `Data/Hora: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
+
+    const notificationMessage = `${escapeMarkdown(disconnectText)}\n${escapeMarkdown(reasonText)}\n${escapeMarkdown(dateTimeText)}`;
+
+    enviarNotificacaoTelegram(notificationMessage, "⚠️ BOT OFFLINE");
+    botReady = false; 
+    botPhoneNumber = null; 
+    console.log('[INFO] [ Desconectado] Tentando salvar estado...');
+    await saveBotState(); 
+    console.log('[INFO] [ Desconectado] Estado salvo (ou tentativa concluída).');
 });
 
 client.on('auth_failure', msg => {
