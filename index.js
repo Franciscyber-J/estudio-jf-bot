@@ -53,7 +53,6 @@ const CONFIG = Object.freeze({
     TYPING_DELAY_PER_CHAR: 10,
     DEFAULT_TYPING_DURATION: 1500,
     LOAD_SAVE_DELAY: 150,
-    // ARQUITETO: As configurações do Telegram agora dependem exclusivamente do arquivo .env.
     TELEGRAM_CONFIGS: [
         { 
             NAME: "Principal", 
@@ -139,7 +138,7 @@ const chatStates = new Map();
  * @returns {string} The escaped text.
  */
 function escapeMarkdown(text) {
-    if (typeof text !== 'string') return text;
+    if (typeof text !== 'string') return '';
     return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
 }
 
@@ -159,6 +158,7 @@ async function enviarNotificacaoTelegram(mensagemTexto, tipoNotificacao = "ℹ�
         
         const tipoNotificacaoEscapado = escapeMarkdown(tipoNotificacao);
         const dataHoraFormatadaEscapada = escapeMarkdown(dataHoraFormatada);
+        // A variável mensagemTexto já deve vir pré-escapada
         const mensagemCompleta = `*${tipoNotificacaoEscapado}*\n_${dataHoraFormatadaEscapada}_\n\n${mensagemTexto}`;
         
         try {
@@ -385,14 +385,17 @@ async function getContactName(msgOrChatId) {
             console.warn(`[Util] Não foi possível obter nome do contato para ${chatIdToUse}: ${e.message}`);
         }
     }
-    return escapeMarkdown(contactName);
+    // Não escapar aqui, escapar apenas ao construir a mensagem final
+    return contactName;
 }
 
 async function displayMenu(msg, chat, isRecall = false) {
     const chatId = chat.id._serialized;
     try {
         if (!isRecall) {
-            const name = await getContactName(msg); const greeting = await greetingMessage();
+            const name = await getContactName(msg);
+            const greeting = await greetingMessage();
+            // Escapar o nome aqui para uso no WhatsApp
             const welcomeMessage = `${greeting}\n\n👋 Olá ${name}! Bem-vindo(a) ao *Estúdio JF Engenharia e Design*! 🌟\n\nComo posso ajudar você hoje? Escolha uma das opções abaixo:`;
             await sendMessageWithTyping(chat, welcomeMessage); await delay(500);
         } else {
@@ -427,15 +430,11 @@ async function confirmarPreAgendamento(msg, chat, currentState) {
         const detailsText = currentState.schedulingDetails ? `\n*Detalhes fornecidos:* ${currentState.schedulingDetails}` : '';
         const confirmationMsg = `✅ Solicitação de pré-agendamento${modeText} recebida com sucesso!${detailsText}\n\nEntraremos em contato em breve para *confirmar a disponibilidade e o horário exato* dentro do período solicitado. Agradecemos a sua preferência! 🤝`;
         await sendMessageWithTyping(chat, confirmationMsg); await delay(1000);
-        const finalMsg = '🌟 Muito obrigado pela confiança no *Estúdio JF Engenharia e Design*! 🌟\n\nSe precisar de algo mais, digite *menu*.';
+        const finalMsg = '🌟 Muito obrigado pela confiança no *Estúdio JF Engenharia e Design*! �\n\nSe precisar de algo mais, digite *menu*.';
         await sendMessageWithTyping(chat, finalMsg);
 
         const contactName = await getContactName(msg);
-        const escapedChatId = escapeMarkdown(chatId);
-        const escapedMode = escapeMarkdown(mode || 'N/A');
-        const escapedDetails = escapeMarkdown(currentState.schedulingDetails || 'Não fornecidos explicitamente no último input');
-
-        const notificacaoMsgTele = `*Cliente:* ${contactName} (${escapedChatId})\n*Tipo:* Pré-agendamento Solicitado\n*Modalidade:* ${escapedMode}\n*Detalhes do Cliente:* ${escapedDetails}`;
+        const notificacaoMsgTele = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Tipo:* Pré\\-agendamento Solicitado\n*Modalidade:* ${escapeMarkdown(mode || 'N/A')}\n*Detalhes do Cliente:* ${escapeMarkdown(currentState.schedulingDetails || 'Não fornecidos explicitamente no último input')}`;
         
         console.log(`[INFO] [confirmarPreAgendamento] Enviando notificação Telegram para ${chatId}.`);
         enviarNotificacaoTelegram(notificacaoMsgTele, "🔔 PRÉ-AGENDAMENTO REALIZADO");
@@ -590,8 +589,7 @@ async function handleMenuOption(msg, chat, lowerBody, currentState) {
                 const clienteMsg = "✅ Entendido! Direcionando sua solicitação para nossa equipe. Por favor, aguarde um momento que um especialista responderá por aqui mesmo. Se preferir, pode adiantar o motivo do seu contato. 🧑‍💻";
                 await sendMessageWithTyping(chat, clienteMsg);
                 const contactNameCliente = await getContactName(msg);
-                const escapedChatIdCliente = escapeMarkdown(chatId);
-                const notificacaoMsgTeleCliente = `*Usuário (WA):* ${contactNameCliente} (${escapedChatIdCliente})\n*Origem:* Opção 7 \\- "Já sou cliente"`;
+                const notificacaoMsgTeleCliente = `*Usuário \\(WA\\):* ${escapeMarkdown(contactNameCliente)} \\(${escapeMarkdown(chatId)}\\)\n*Origem:* Opção 7 \\- "Já sou cliente"`;
                 console.log(`[INFO] [Menu Principal] Opção 7: Enviando notificação Telegram para ${chatId}.`);
                 enviarNotificacaoTelegram(notificacaoMsgTeleCliente, "🔔 SOLICITAÇÃO DE ATENDIMENTO HUMANO");
                 await updateChatState(chatId, { currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, isHuman: true, humanTakeoverConfirmed: false, reminderSent: false }); break;
@@ -617,9 +615,7 @@ async function handleOrcamentoOption(msg, chat, lowerBody, currentState) {
         await sendMessageWithTyping(chat, formMessagePt3, 100, 15); await sendMessageWithTyping(chat, formMessagePt4);
 
         const contactName = await getContactName(msg);
-        const escapedChatId = escapeMarkdown(chatId);
-        const escapedFormLink = escapeMarkdown(CONFIG.FORM_LINK_ORCAMENTO);
-        const notificacaoMsgTele = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Link do formulário de orçamento enviado\\.\n*Link:* ${escapedFormLink}`;
+        const notificacaoMsgTele = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Link do formulário de orçamento enviado\\.\n*Link:* ${escapeMarkdown(CONFIG.FORM_LINK_ORCAMENTO)}`;
         
         console.log(`[INFO] [Sub-menu Orçamento] Opção 1: Enviando notificação Telegram para ${chatId}.`);
         enviarNotificacaoTelegram(notificacaoMsgTele, "ℹ️ LINK DE FORMULÁRIO ENVIADO");
@@ -774,8 +770,7 @@ async function handleConfirmacaoDuvida(msg, chat, lowerBody, currentState) {
             console.log(`[INFO] [Dúvida] User ${chatId} finalizou dúvida (Não).`); const finalMessage = "✅ Entendido! Obrigado por compartilhar sua dúvida conosco.\n\nNossa equipe analisará e retornará o contato assim que possível.\n\nSe precisar de mais alguma coisa enquanto isso, digite *menu*.";
             await sendMessageWithTyping(chat, finalMessage);
             const contactName = await getContactName(msg);
-            const escapedChatId = escapeMarkdown(chatId);
-            const notificacaoMsgTele = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Dúvida/Solicitação registrada\\. Aguardando análise da equipe\\.`;
+            const notificacaoMsgTele = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Dúvida/Solicitação registrada\\. Aguardando análise da equipe\\.`;
             console.log(`[INFO] [Dúvida] Enviando notificação Telegram para ${chatId}.`);
             enviarNotificacaoTelegram(notificacaoMsgTele, "❓ NOVA DÚVIDA/SOLICITAÇÃO");
             return { currentState: STATES.DUVIDA_REGISTRADA };
@@ -794,8 +789,7 @@ async function handleRespostaPreEspecialista(msg, chat, lowerBody, currentState)
             console.log(`[INFO] [Especialista] User ${chatId} NÃO quer info pré-especialista (Não). Transferindo...`);
             const specialistMessage = "✅ Entendido! Recebemos sua solicitação para falar com um especialista.\n\nUm membro da nossa equipe entrará em contato o mais breve possível aqui mesmo pelo WhatsApp. Por favor, aguarde. ⏳\n\n_Se precisar voltar ao menu principal, digite *menu*._";
             const contactName = await getContactName(msg);
-            const escapedChatId = escapeMarkdown(chatId);
-            const notificacaoMsgTele = `*Usuário (WA):* ${contactName} (${escapedChatId})\n*Origem:* Solicitou especialista \\- Sem info adicional\\.`;
+            const notificacaoMsgTele = `*Usuário \\(WA\\):* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Origem:* Solicitou especialista \\- Sem info adicional\\.`;
             console.log(`[INFO] [Especialista] Enviando notificação Telegram para ${chatId}.`);
             enviarNotificacaoTelegram(notificacaoMsgTele, "🔔 SOLICITAÇÃO DE ATENDIMENTO HUMANO");
             await sendMessageWithTyping(chat, specialistMessage);
@@ -841,8 +835,7 @@ async function handleConfirmacaoInfoPreEspecialista(msg, chat, lowerBody, curren
             console.log(`[INFO] [Especialista] User ${chatId} finalizou envio pré-especialista (Não). Transferindo...`);
             const specialistMessage = "✅ Certo! Informações recebidas. Sua solicitação para falar com um especialista foi registrada.\n\nUm membro da nossa equipe entrará em contato o mais breve possível aqui mesmo pelo WhatsApp. Por favor, aguarde. ⏳\n\n_Se precisar voltar ao menu principal, digite *menu*._";
             const contactName = await getContactName(msg);
-            const escapedChatId = escapeMarkdown(chatId);
-            const notificacaoMsgTele = `*Usuário (WA):* ${contactName} (${escapedChatId})\n*Origem:* Solicitou especialista \\- Concluiu envio de info\\.`;
+            const notificacaoMsgTele = `*Usuário \\(WA\\):* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Origem:* Solicitou especialista \\- Concluiu envio de info\\.`;
             console.log(`[INFO] [Especialista] Enviando notificação Telegram para ${chatId}.`);
             enviarNotificacaoTelegram(notificacaoMsgTele, "🔔 SOLICITAÇÃO DE ATENDIMENTO HUMANO");
             await sendMessageWithTyping(chat, specialistMessage);
@@ -862,8 +855,7 @@ async function handleConfirmacaoParceriaExtra(msg, chat, lowerBody, currentState
             console.log(`[INFO] [Parceiros] User ${chatId} NÃO quer info complementar chat (Não).`); const finalMessage = `Entendido. Aguardamos seu contato pelo e-mail ${CONFIG.EMAIL_PARCEIROS}.\n\nSe precisar de mais algo aqui, digite *menu*.`;
             await sendMessageWithTyping(chat, finalMessage);
             const contactName = await getContactName(msg);
-            const escapedChatId = escapeMarkdown(chatId);
-            const notificacaoMsgTele = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Instruções para parceria (via e\\-mail) fornecidas\\. Não quis enviar info extra pelo chat\\.`;
+            const notificacaoMsgTele = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Instruções para parceria \\(via e\\-mail\\) fornecidas\\. Não quis enviar info extra pelo chat\\.`;
             console.log(`[INFO] [Parceiros] Enviando notificação Telegram para ${chatId}.`);
             enviarNotificacaoTelegram(notificacaoMsgTele, "🤝 INSTRUÇÕES DE PARCERIA");
             return { currentState: STATES.PARCERIA_INFO_DADA };
@@ -908,8 +900,7 @@ async function handleConfirmacaoMaisInfoParceria(msg, chat, lowerBody, currentSt
             console.log(`[INFO] [Parceiros] User ${chatId} finalizou info complementar (Não).`); const finalMessage = `Certo! Informações adicionais recebidas.\n\nLembre-se de enviar sua proposta completa para ${CONFIG.EMAIL_PARCEIROS}.\n\nSe precisar de mais algo aqui, digite *menu*.`;
             await sendMessageWithTyping(chat, finalMessage);
             const contactName = await getContactName(msg);
-            const escapedChatId = escapeMarkdown(chatId);
-            const notificacaoMsgTele = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Instruções para parceria (via e\\-mail) fornecidas\\. Info extra enviada pelo chat\\.`;
+            const notificacaoMsgTele = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Instruções para parceria \\(via e\\-mail\\) fornecidas\\. Info extra enviada pelo chat\\.`;
             console.log(`[INFO] [Parceiros] Enviando notificação Telegram para ${chatId}.`);
             enviarNotificacaoTelegram(notificacaoMsgTele, "🤝 INSTRUÇÕES DE PARCERIA");
             return { currentState: STATES.PARCERIA_INFO_DADA };
@@ -1034,9 +1025,7 @@ client.on('message_create', async msg => {
         if (lowerBody === 'encerrar') {
             console.log(`[INFO] [Global] Comando 'encerrar' recebido de ${chatId}.`);
             const contactName = await getContactName(msg);
-            const escapedChatId = escapeMarkdown(chatId);
-            const escapedState = escapeMarkdown(currentStateData.currentState);
-            const summaryMsg = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Cliente digitou "encerrar"\\.\n*Último estado do bot:* ${escapedState}`;
+            const summaryMsg = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Cliente digitou "encerrar"\\.\n*Último estado do bot:* ${escapeMarkdown(currentStateData.currentState)}`;
             enviarNotificacaoTelegram(summaryMsg, "🚫 ATENDIMENTO ENCERRADO PELO CLIENTE");
             await sendMessageWithTyping(chat, "Ok, atendimento encerrado. 👋"); cleanupChatState(chatId); stateChangedDuringProcessing = true;
         } else if (lowerBody === 'menu' || lowerBody === 'reiniciar') {
@@ -1056,9 +1045,7 @@ client.on('message_create', async msg => {
                     responseMessage = `Olá ${contactName}! Que ótimo seu interesse no *${detectedPackageName}*! ✨\n\nJá estou encaminhando você para um de nossos especialistas, que entrará em contato em instantes.\n\nPara elaborarmos uma proposta sob medida para você, nosso formulário de orçamento é uma ferramenta chave! Ele nos permite captar todos os detalhes importantes para um projeto personalizado.\n➡️ *Formulário para Orçamento Personalizado:* ${CONFIG.FORM_LINK_ORCAMENTO}\n\nNosso consultor irá solicitar o preenchimento para detalhar seu orçamento. Se quiser adiantar, pode preencher agora. Caso contrário, não tem problema, ele te guiará depois. O importante é que seu atendimento está garantido!\n\nEnquanto isso, se precisar de outras informações ou voltar ao menu principal, é só digitar *menu*.`;
                 }
                 await sendMessageWithTyping(chat, responseMessage);
-                const escapedChatId = escapeMarkdown(chatId);
-                const escapedPackageName = escapeMarkdown(detectedPackageName);
-                const notificacaoMsgTelePacote = `*Usuário (WA):* ${contactName} (${escapedChatId})\n*Origem:* Interesse no "${escapedPackageName}"`;
+                const notificacaoMsgTelePacote = `*Usuário \\(WA\\):* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Origem:* Interesse no "${escapeMarkdown(detectedPackageName)}"`;
                 enviarNotificacaoTelegram(notificacaoMsgTelePacote, "🔔 SOLICITAÇÃO DE ATENDIMENTO HUMANO");
                 await updateChatState(chatId, { currentState: STATES.HUMANO_ATIVO, isHuman: true, humanTakeoverConfirmed: false, reminderSent: false, menuDisplayed: false });
                 stateChangedDuringProcessing = true;
@@ -1081,7 +1068,7 @@ client.on('message_create', async msg => {
                             let handlerFunction = null;
                             switch (stateType) {
                                 case STATES.AGUARDANDO_OPCAO_MENU: handlerFunction = handleMenuOption; break; case STATES.AGUARDANDO_OPCAO_ORCAMENTO: handlerFunction = handleOrcamentoOption; break; case STATES.AGUARDANDO_POS_PORTFOLIO: handlerFunction = handlePostPortfolio; break;
-                                case STATES.AGUARDANDO_POS_SERVICOS: handlerFunction = handlePostServicos; break; case STATES.AGUARDANDO_MODO_AGENDAMENTO: handlerFunction = handleAgendamentoMode; break; case STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES: handlerFunction = handlePreAgendamentoDetalhes; break;
+                                case STATES.AGUARDANDO_POS_SERVICOS: handlerFunction = handlePostServicos; break; case STATES.AGUARDANDO_MODO_AGENDamento: handlerFunction = handleAgendamentoMode; break; case STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES: handlerFunction = handlePreAgendamentoDetalhes; break;
                                 case STATES.AGUARDANDO_DESCRICAO_DUVIDA: handlerFunction = handleDescricaoDuvida; break; case STATES.AGUARDANDO_CONFIRMACAO_DUVIDA: handlerFunction = handleConfirmacaoDuvida; break; case STATES.AGUARDANDO_RESPOSTA_PRE_ESPECIALISTA: handlerFunction = handleRespostaPreEspecialista; break;
                                 case STATES.AGUARDANDO_INFO_PRE_ESPECIALISTA: handlerFunction = handleInfoPreEspecialista; break; case STATES.AGUARDANDO_CONFIRMACAO_INFO_PRE_ESPECIALISTA: handlerFunction = handleConfirmacaoInfoPreEspecialista; break; case STATES.AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA: handlerFunction = handleConfirmacaoParceriaExtra; break;
                                 case STATES.AGUARDANDO_INFO_PARCERIA: handlerFunction = handleInfoParceria; break; case STATES.AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA: handlerFunction = handleConfirmacaoMaisInfoParceria; break;
@@ -1125,11 +1112,9 @@ setInterval(async () => {
                 console.log(`[INFO] [Inatividade] Timeout GERAL (${(CONFIG.INACTIVE_SESSION_TIMEOUT / 60000)} min) para ${chatId}. Limpando.`);
                 
                 const contactName = await getContactName(chatId);
-                const escapedChatId = escapeMarkdown(chatId);
-                const escapedStateType = escapeMarkdown(stateType);
                 const inactiveMinutes = Math.round(CONFIG.INACTIVE_SESSION_TIMEOUT / 60000);
                 
-                const summaryMsg = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Sessão expirada por inatividade geral\\.\n*Último estado do bot:* ${escapedStateType}\n*Tempo inativo:* ${inactiveMinutes} min`;
+                const summaryMsg = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Sessão expirada por inatividade geral\\.\n*Último estado do bot:* ${escapeMarkdown(stateType)}\n*Tempo inativo:* ${inactiveMinutes} min`;
                 
                 enviarNotificacaoTelegram(summaryMsg, "⏰ SESSÃO EXPIRADA POR INATIVIDADE");
                 cleanupChatState(chatId); stateChangedInInterval = true; continue;
@@ -1157,11 +1142,9 @@ setInterval(async () => {
                 console.log(`[INFO] [Inatividade] Timeout de INPUT (${(CONFIG.MENU_RESET_TIMEOUT / 60000)} min) para ${chatId} no estado '${stateType}'. Resetando.`);
                 
                 const contactName = await getContactName(chatId);
-                const escapedChatId = escapeMarkdown(chatId);
-                const escapedStateType = escapeMarkdown(stateType);
                 const inactiveMinutes = Math.round(CONFIG.MENU_RESET_TIMEOUT / 60000);
 
-                const summaryMsg = `*Cliente:* ${contactName} (${escapedChatId})\n*Ação:* Atendimento resetado por inatividade do cliente em responder ao bot\\.\n*Estava no estado:* ${escapedStateType}\n*Tempo inativo:* ${inactiveMinutes} min`;
+                const summaryMsg = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Atendimento resetado por inatividade do cliente em responder ao bot\\.\n*Estava no estado:* ${escapeMarkdown(stateType)}\n*Tempo inativo:* ${inactiveMinutes} min`;
                 
                 enviarNotificacaoTelegram(summaryMsg, "🔄 ATENDIMENTO RESETADO POR INATIVIDADE");
                 const chat = await client.getChatById(chatId);
