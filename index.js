@@ -53,10 +53,25 @@ const CONFIG = Object.freeze({
     TYPING_DELAY_PER_CHAR: 10,
     DEFAULT_TYPING_DURATION: 1500,
     LOAD_SAVE_DELAY: 150,
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Adicionada lógica de fallback. O bot usará as variáveis de ambiente se existirem,
+    // caso contrário, usará os valores fixos no código. Isso garante que o bot funcione
+    // mesmo sem um arquivo .env configurado.
     TELEGRAM_CONFIGS: [
-        { NAME: "Principal", BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_PRINCIPAL, CHAT_ID: process.env.TELEGRAM_CHAT_ID_PRINCIPAL, TIMEZONE: 'America/Sao_Paulo' },
-        { NAME: "Secundario", BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_SECUNDARIO, CHAT_ID: process.env.TELEGRAM_CHAT_ID_SECUNDARIO, TIMEZONE: 'America/Sao_Paulo' }
+        { 
+            NAME: "Principal", 
+            BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_PRINCIPAL || '7627049345:AAGurPOQFpf2chF7siRk59qFOB-pziAmn5Y', 
+            CHAT_ID: process.env.TELEGRAM_CHAT_ID_PRINCIPAL || '6246515644', 
+            TIMEZONE: 'America/Sao_Paulo' 
+        },
+        { 
+            NAME: "Secundario", 
+            BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN_SECUNDARIO || '7730351379:AAFVjJq0Ch8UvLm9NGGtdP4PSjzL7-218j4', 
+            CHAT_ID: process.env.TELEGRAM_CHAT_ID_SECUNDARIO || '5183023127', 
+            TIMEZONE: 'America/Sao_Paulo' 
+        }
     ],
+    // ##################### FIM DA CORREÇÃO ######################
 });
 
 const MENSAGENS_ESTADO_PASSIVO = Object.freeze({
@@ -129,7 +144,6 @@ const chatStates = new Map();
  */
 function escapeMarkdown(text) {
     if (typeof text !== 'string') return text;
-    // This escapes special characters for MarkdownV2, which is more strict and safer.
     return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
 }
 
@@ -487,7 +501,7 @@ async function handleInvalidResponse(msg, chat, currentState) {
                 switch (currentStateType) {
                     case STATES.AGUARDANDO_OPCAO_MENU: errorMessage = '⚠️ Opção inválida. Por favor, digite o *número* de *1* a *7* correspondente à opção desejada.'; break;
                     case STATES.AGUARDANDO_MODO_AGENDAMENTO: errorMessage = `⚠️ Opção inválida. Por favor, escolha:\n• Digite *1* para Online.\n• Digite *2* para Presencial.`; break;
-                    case STATES.AGUARDANDO_PRE_AGENDamento_DETALHES: errorMessage = `😕 Entrada inválida ou incompleta.\n\n${formatoExemploAgendamento}\n\nDigite *menu* para voltar ou *encerrar* para cancelar.`; break;
+                    case STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES: errorMessage = `😕 Entrada inválida ou incompleta.\n\n${formatoExemploAgendamento}\n\nDigite *menu* para voltar ou *encerrar* para cancelar.`; break;
                     case STATES.AGUARDANDO_DESCRICAO_DUVIDA: errorMessage = "💬 Por favor, *descreva sua dúvida* ou necessidade (ou envie um arquivo/áudio). Se preferir, digite *menu* ou *encerrar*."; break;
                     case STATES.AGUARDANDO_POS_PORTFOLIO: errorMessage = `🤔 Opção inválida. Após ver nosso portfólio, por favor, escolha:\n• Digite *3* para Orçamento.\n• Digite *4* para falar com Especialista.\n• Digite *menu* para ver todas as opções.`; break;
                     case STATES.AGUARDANDO_POS_SERVICOS: errorMessage = `🤔 Opção inválida. Após ver nossos serviços, escolha:\n• Digite *3* para solicitar um orçamento.\n• Digite *menu* para voltar às opções principais.`; break;
@@ -532,7 +546,7 @@ async function displayAgendamentoModeMenu(msg, chat) {
     console.log(`[INFO] [displayAgendamentoModeMenu] Exibindo para ${chatId}.`);
     try {
         const promptMsg = "🗓️ Ótimo! Como você prefere que seja essa conversa inicial sobre o projeto?";
-        const optionsMsg = `• *💻 1. Online:* Realizada por videochamada (Google Meet, Zoom, etc.).\n\n• *🏢 2. Presencial:* Em nosso escritório.\n\nDigite o número da modalidade desejada ou *menu* para voltar.`;
+        const optionsMsg = `• *💻 1. Online:* Realizada por videochamada (Google Meet, Zoom, etc.).\n\n• *� 2. Presencial:* Em nosso escritório.\n\nDigite o número da modalidade desejada ou *menu* para voltar.`;
         await sendMessageWithTyping(chat, promptMsg); await delay(500);
         await sendMessageWithTyping(chat, optionsMsg);
         await updateChatState(chatId, { currentState: STATES.AGUARDANDO_MODO_AGENDAMENTO, menuDisplayed: false, inOrcamento: false });
@@ -563,7 +577,7 @@ async function handleMenuOption(msg, chat, lowerBody, currentState) {
                 await updateChatState(chatId, { currentState: STATES.AGUARDANDO_POS_SERVICOS, menuDisplayed: false }); break;
             case '3': await displayOrcamentoSubMenu(msg, chat); break;
             case '4':
-                const preEspecialistaQuestion = `Entendido! Você será direcionado(a) a um especialista. 👨‍�👩‍💻\n\nAntes disso, gostaria de enviar alguma *informação adicional* (como texto, áudio, vídeo ou documento) para adiantar o atendimento?\n\nPor favor, responda com *sim* ou *não*.`;
+                const preEspecialistaQuestion = `Entendido! Você será direcionado(a) a um especialista. 👨‍💻👩‍💻\n\nAntes disso, gostaria de enviar alguma *informação adicional* (como texto, áudio, vídeo ou documento) para adiantar o atendimento?\n\nPor favor, responda com *sim* ou *não*.`;
                 await sendMessageWithTyping(chat, preEspecialistaQuestion);
                 await updateChatState(chatId, { currentState: STATES.AGUARDANDO_RESPOSTA_PRE_ESPECIALISTA, menuDisplayed: false }); break;
             case '5':
