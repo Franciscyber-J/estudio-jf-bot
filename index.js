@@ -14,6 +14,12 @@ const PORT = process.env.PORT || 9001;
 
 let telegramBotInstances = [];
 
+const telegramRequestOptions = {
+    request: {
+        family: 4,
+    },
+};
+
 const STATES = Object.freeze({
     INICIO: 'inicio',
     AGUARDANDO_OPCAO_MENU: 'aguardando_opcao_menu',
@@ -921,7 +927,7 @@ client.on('ready', async () => {
         for (const tgConfig of CONFIG.TELEGRAM_CONFIGS) {
             if (tgConfig.BOT_TOKEN && tgConfig.CHAT_ID) {
                 try {
-                    const bot = new TelegramBot(tgConfig.BOT_TOKEN); const me = await bot.getMe();
+                    const bot = new TelegramBot(tgConfig.BOT_TOKEN, { polling: false }, telegramRequestOptions); const me = await bot.getMe();
                     console.log(`[Telegram] Conectado ao bot Telegram (Nome: ${tgConfig.NAME || 'N/A'}, User: @${me.username}) para o chat ID ${tgConfig.CHAT_ID}`);
                     telegramBotInstances.push({ bot, chatId: tgConfig.CHAT_ID, timezone: tgConfig.TIMEZONE || 'UTC', name: tgConfig.NAME || me.username });
                 } catch (error) { console.error(`[Telegram] Falha ao inicializar o bot Telegram (Nome: ${tgConfig.NAME || 'N/A'}):`, error.message); }
