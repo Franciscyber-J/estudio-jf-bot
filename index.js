@@ -436,7 +436,7 @@ async function confirmarPreAgendamento(msg, chat, currentState) {
         const detailsText = currentState.schedulingDetails ? `\n*Detalhes fornecidos:* ${currentState.schedulingDetails}` : '';
         const confirmationMsg = `✅ Solicitação de pré-agendamento${modeText} recebida com sucesso!${detailsText}\n\nEntraremos em contato em breve para *confirmar a disponibilidade e o horário exato* dentro do período solicitado. Agradecemos a sua preferência! 🤝`;
         await sendMessageWithTyping(chat, confirmationMsg); await delay(1000);
-        const finalMsg = '🌟 Muito obrigado pela confiança no *Estúdio JF Engenharia e Design*! �\n\nSe precisar de algo mais, digite *menu*.';
+        const finalMsg = '🌟 Muito obrigado pela confiança no *Estúdio JF Engenharia e Design*! \n\nSe precisar de algo mais, digite *menu*.';
         await sendMessageWithTyping(chat, finalMsg);
 
         const contactName = await getContactName(msg);
@@ -927,7 +927,13 @@ client.on('ready', async () => {
         for (const tgConfig of CONFIG.TELEGRAM_CONFIGS) {
             if (tgConfig.BOT_TOKEN && tgConfig.CHAT_ID) {
                 try {
-                    const bot = new TelegramBot(tgConfig.BOT_TOKEN, { polling: false }, telegramRequestOptions); const me = await bot.getMe();
+                    // ### CORREÇÃO APLICADA AQUI ###
+                    const botOptions = {
+                        polling: false,
+                        ...telegramRequestOptions
+                    };
+                    const bot = new TelegramBot(tgConfig.BOT_TOKEN, botOptions);
+                    const me = await bot.getMe();
                     console.log(`[Telegram] Conectado ao bot Telegram (Nome: ${tgConfig.NAME || 'N/A'}, User: @${me.username}) para o chat ID ${tgConfig.CHAT_ID}`);
                     telegramBotInstances.push({ bot, chatId: tgConfig.CHAT_ID, timezone: tgConfig.TIMEZONE || 'UTC', name: tgConfig.NAME || me.username });
                 } catch (error) { console.error(`[Telegram] Falha ao inicializar o bot Telegram (Nome: ${tgConfig.NAME || 'N/A'}):`, error.message); }
