@@ -990,6 +990,10 @@ client.on('auth_failure', msg => {
 client.on('message_ack', async (msg, ack) => { });
 
 client.on('message_create', async msg => {
+    if (msg.author) {
+        console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${msg.from}. Autor: ${msg.author}`);
+        return;
+    }
     if (!msg || !msg.from || !msg.from.endsWith('@c.us') || msg.isGroup || msg.isStatus) { return; }
     if (!botReady || !botPhoneNumber) { console.log("[WARN] Bot não pronto. Ignorando msg."); return; }
     if (msg.fromMe) {
