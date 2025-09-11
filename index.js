@@ -60,7 +60,6 @@ const CONFIG = Object.freeze({
     TYPING_DELAY_PER_CHAR: 10,
     DEFAULT_TYPING_DURATION: 1500,
     LOAD_SAVE_DELAY: 150,
-    // ARQUITETO: Adicionado número do admin para gestão de comandos.
     ADMIN_NUMBER: process.env.ADMIN_NUMBER,
     TELEGRAM_CONFIGS: [
         { 
@@ -1012,54 +1011,54 @@ client.on('message_create', async msg => {
     if (!botReady || !botPhoneNumber) { console.log("[WARN] Bot não pronto. Ignorando msg."); return; }
 
     const fromId = msg.from;
+    const toId = msg.to;
     const lowerBody = msg.body?.trim().toLowerCase() ?? '';
     const adminNumberWithSuffix = CONFIG.ADMIN_NUMBER ? `${CONFIG.ADMIN_NUMBER}@c.us` : null;
-    const isAdmin = adminNumberWithSuffix && fromId === adminNumberWithSuffix;
+    
+    // ARQUITETO: Lógica de Comandos do Admin (quando o admin usa a conta do bot)
+    if (msg.fromMe) {
+        const targetChatId = toId; // O cliente é o destinatário
 
-    // ARQUITETO: Adicionado log de depuração para verificar a identificação do admin.
-    if (CONFIG.ADMIN_NUMBER) {
-        console.log(`[DEBUG] Admin Check: fromId='${fromId}' | adminNumberWithSuffix='${adminNumberWithSuffix}' | isAdmin=${isAdmin}`);
+        if (/^(assumir|assumindo)$/i.test(lowerBody)) {
+            console.log(`[INFO] [Admin Command] Admin (via conta do bot) assumiu o chat com: ${targetChatId}`);
+            await updateChatState(targetChatId, { isHuman: true, humanTakeoverConfirmed: true, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, reminderSent: false });
+            await saveBotState();
+            return; // Encerra o processamento aqui
+        }
+        
+        if (/^esse contato (é|e) um bot$/i.test(lowerBody)) {
+            console.log(`[INFO] [Admin Command] Admin (via conta do bot) marcou como bot: ${targetChatId}`);
+            const contactName = await getContactName(targetChatId);
+            ignoredBots.set(targetChatId, contactName);
+            cleanupChatState(targetChatId);
+            await saveBotState();
+            await client.sendMessage(targetChatId, "_[Esta conversa foi encerrada e o contato foi marcado como bot.]_");
+            return; // Encerra o processamento aqui
+        }
+        // Deixa outras mensagens do admin passarem para o cliente sem interferência do bot.
+        // E atualiza o timestamp do cliente para não resetar a conversa.
+        const clientState = chatStates.get(targetChatId);
+        if(clientState && clientState.isHuman) {
+            await updateChatState(targetChatId, {});
+            await saveBotState();
+        }
+        return;
     }
     
-    // ARQUITETO: Lógica de comandos do admin foi centralizada e melhorada.
-    // Agora os comandos funcionam respondendo a uma mensagem do cliente, ou enviados diretamente ao bot.
+    // ARQUITETO: Lógica de Comandos do Admin (quando o admin usa seu número pessoal)
+    const isAdmin = adminNumberWithSuffix && fromId === adminNumberWithSuffix;
     if (isAdmin) {
-        console.log(`[INFO] [Admin Command] Mensagem recebida do administrador: "${msg.body}"`);
+        console.log(`[INFO] [Admin Command] Mensagem do número pessoal do Admin: "${msg.body}"`);
         const chat = await msg.getChat();
 
-        // Comandos que operam sobre uma conversa específica (requerem citação)
-        if (msg.hasQuotedMsg) {
-            const quotedMsg = await msg.getQuotedMessage();
-            const targetChatId = quotedMsg.from;
-
-            if (targetChatId && targetChatId.endsWith('@c.us')) {
-                if (/^(assumir|assumindo)$/i.test(lowerBody)) {
-                    console.log(`[INFO] [Admin Command] Comando 'assumir' recebido para o chat: ${targetChatId}`);
-                    await updateChatState(targetChatId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false });
-                    await saveBotState();
-                    await sendMessageWithTyping(chat, `✅ Atendimento do contato ${targetChatId.replace('@c.us','')} assumido.`);
-                    return;
-                }
-                
-                if (/^esse contato (é|e) um bot$/i.test(lowerBody)) {
-                    const contactName = await getContactName(targetChatId);
-                    console.log(`[INFO] [Admin Command] Comando 'esse contato é um bot' recebido. Adicionando ${targetChatId} à lista de ignorados.`);
-                    ignoredBots.set(targetChatId, contactName);
-                    await sendMessageWithTyping(chat, `✅ Contato ${contactName} (${targetChatId.replace('@c.us','')}) adicionado à lista de bots ignorados. O atendimento foi encerrado.`);
-                    cleanupChatState(targetChatId);
-                    await saveBotState();
-                    return;
-                }
-            }
-        }
-
-        // Comandos informativos (não requerem citação)
         if (/^lista de comando(s)?$/i.test(lowerBody)) {
             const commandsList = `*Comandos de Gerenciamento:*\n\n` +
-                                `• *assumir / assumindo*: Responda a uma mensagem do *cliente* com este comando para assumir o chat.\n\n` +
-                                `• *esse contato é um bot*: Responda a uma mensagem do *contato* com este comando para adicioná-lo à lista de ignorados.\n\n` +
-                                `• *visualizar lista de ignorados*: Mostra a lista de contatos que o bot está ignorando atualmente.\n\n` +
-                                `• *lista de comandos*: Mostra esta lista de ajuda.`;
+                `1️⃣ *No chat do cliente (usando o WhatsApp do bot):*\n` +
+                `   • *assumir*: Assume o controle, desativando o bot para aquele cliente.\n` +
+                `   • *esse contato é um bot*: Adiciona o cliente à lista de ignorados.\n\n` +
+                `2️⃣ *Neste chat (enviando para o bot):*\n` +
+                `   • *visualizar lista de ignorados*: Mostra a lista de contatos que o bot está ignorando.\n` +
+                `   • *lista de comandos*: Mostra esta lista de ajuda.`;
             await sendMessageWithTyping(chat, commandsList);
             return;
         }
@@ -1078,9 +1077,12 @@ client.on('message_create', async msg => {
             await sendMessageWithTyping(chat, responseMsg);
             return;
         }
+        
+        await sendMessageWithTyping(chat, "Comando de administrador não reconhecido. Digite `lista de comandos` para ver as opções.");
+        return;
     }
 
-    if (msg.fromMe) { return; }
+    // ARQUITETO: Lógica do Bot para Clientes
     if (ignoredBots.has(fromId)) { console.log(`[MENSAGEM IGNORADA] Mensagem de bot ignorado detectada de ${fromId}.`); return; }
     if (msg.author) { console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${fromId}. Autor: ${msg.author}`); return; }
     
@@ -1273,4 +1275,3 @@ app.listen(PORT, () => {
         process.exit(1);
     });
 });
-
