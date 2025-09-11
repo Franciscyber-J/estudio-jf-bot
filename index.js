@@ -110,10 +110,9 @@ const client = new Client({
     authStrategy: new LocalAuth({
         clientId: "estudio-jf-bot"
     }),
-    webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-    },
+    // ARQUITETO: A configuração 'webVersionCache' foi removida. 
+    // Isso permite que a biblioteca 'whatsapp-web.js' busque automaticamente uma versão 
+    // funcional e compatível do WhatsApp Web, resolvendo o problema de conexão após o QR Code.
     puppeteer: {
         headless: true,
         args: [
@@ -1166,7 +1165,7 @@ client.on('message_create', async msg => {
                             let handlerFunction = null;
                             switch (stateType) {
                                 case STATES.AGUARDANDO_OPCAO_MENU: handlerFunction = handleMenuOption; break; case STATES.AGUARDANDO_OPCAO_ORCAMENTO: handlerFunction = handleOrcamentoOption; break; case STATES.AGUARDANDO_POS_PORTFOLIO: handlerFunction = handlePostPortfolio; break;
-                                case STATES.AGUARDANDO_POS_SERVICOS: handlerFunction = handlePostServicos; break; case STATES.AGUARDANDO_MODO_AGENDamento: handlerFunction = handleAgendamentoMode; break; case STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES: handlerFunction = handlePreAgendamentoDetalhes; break;
+                                case STATES.AGUARDANDO_POS_SERVICOS: handlerFunction = handlePostServicos; break; case STATES.AGUARDANDO_MODO_AGENDAMENTO: handlerFunction = handleAgendamentoMode; break; case STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES: handlerFunction = handlePreAgendamentoDetalhes; break;
                                 case STATES.AGUARDANDO_DESCRICAO_DUVIDA: handlerFunction = handleDescricaoDuvida; break; case STATES.AGUARDANDO_CONFIRMACAO_DUVIDA: handlerFunction = handleConfirmacaoDuvida; break; case STATES.AGUARDANDO_RESPOSTA_PRE_ESPECIALISTA: handlerFunction = handleRespostaPreEspecialista; break;
                                 case STATES.AGUARDANDO_INFO_PRE_ESPECIALISTA: handlerFunction = handleInfoPreEspecialista; break; case STATES.AGUARDANDO_CONFIRMACAO_INFO_PRE_ESPECIALISTA: handlerFunction = handleConfirmacaoInfoPreEspecialista; break; case STATES.AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA: handlerFunction = handleConfirmacaoParceriaExtra; break;
                                 case STATES.AGUARDANDO_INFO_PARCERIA: handlerFunction = handleInfoParceria; break; case STATES.AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA: handlerFunction = handleConfirmacaoMaisInfoParceria; break;
