@@ -52,6 +52,7 @@ const CONFIG = Object.freeze({
     FORM_LINK_ORCAMENTO: 'https://forms.gle/NVqAKXXTLnw5ZVfk6',
     EMAIL_PARCEIROS: 'parceiros@estudiojf.com.br',
     SITE_URL: 'https://www.estudiojf.com.br',
+    PORTFOLIO_URL: 'https://estudiojf.com.br/portfolio/',
     SERVICOS_URL_ATUALIZADA: 'https://estudiojf.com.br/#servicos',
     SAVE_STATE_INTERVAL: 150,
     INACTIVITY_CHECK_INTERVAL: 60000,
@@ -59,6 +60,8 @@ const CONFIG = Object.freeze({
     TYPING_DELAY_PER_CHAR: 10,
     DEFAULT_TYPING_DURATION: 1500,
     LOAD_SAVE_DELAY: 150,
+    // ARQUITETO: Adicionado número do admin para gestão de comandos.
+    ADMIN_NUMBER: process.env.ADMIN_NUMBER,
     TELEGRAM_CONFIGS: [
         { 
             NAME: "Principal", 
@@ -378,8 +381,6 @@ async function sendMessageWithTyping(chat, message, baseDelay = CONFIG.TYPING_BA
 }
 
 async function greetingMessage() {
-    // ARQUITETO: Corrigido para usar o fuso horário de São Paulo (UTC-3).
-    // O servidor pode estar em UTC, então a hora precisa ser ajustada para a saudação correta.
     const now = new Date();
     const hour = parseInt(now.toLocaleTimeString('pt-BR', { hour: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' }));
 
@@ -580,8 +581,13 @@ async function handleMenuOption(msg, chat, lowerBody, currentState) {
         switch (lowerBody) {
             case '1':
                 const portfolioResponse = `✨ Explore nosso trabalho e conheça mais sobre o *Estúdio JF Engenharia e Design*!\n\nNosso site reúne informações completas:\n• Projetos realizados e cases de sucesso.\n• Nossa história, valores e equipe.\n• Formas de contato e .\n• Pioneiros no Brasil em pagamentos com Criptomoedas! ₿\n\nAcesse aqui: ${CONFIG.SITE_URL}`;
+                // ARQUITETO: Adicionada mensagem com link direto para o portfólio.
+                const portfolioDirectLink = `Se preferir, você também pode acessar nosso portfólio de projetos diretamente através deste link:\n\n🔗 *Portfólio:* ${CONFIG.PORTFOLIO_URL}`;
                 const portfolioConfirmation = `Após explorar nosso site:\n• Digite *3* se desejar solicitar um *orçamento*.\n• Digite *4* para falar com um *especialista*.\n• Digite *menu* para ver todas as opções novamente.`;
-                await sendMessageWithTyping(chat, portfolioResponse); await sendMessageWithTyping(chat, portfolioConfirmation);
+                await sendMessageWithTyping(chat, portfolioResponse); 
+                await delay(500);
+                await sendMessageWithTyping(chat, portfolioDirectLink);
+                await sendMessageWithTyping(chat, portfolioConfirmation);
                 await updateChatState(chatId, { currentState: STATES.AGUARDANDO_POS_PORTFOLIO, menuDisplayed: false }); break;
             case '2':
                 const servicosResponse = `📐 Oferecemos soluções completas em Engenharia e Design, incluindo nossos pacotes e projetos especializados. Conheça cada um deles em detalhes e veja qual se encaixa melhor em suas necessidades!\n\n• *Pacote Silver*\n• *Pacote Gold*\n• *Pacote Black*\n• *Pacote Premium*\n• *Projeto de Impermeabilização*\n\nVisite nosso site para detalhes completos e para iniciar uma conversa sobre um pacote específico: ${CONFIG.SERVICOS_URL_ATUALIZADA}`;
@@ -998,90 +1004,83 @@ client.on('auth_failure', msg => {
 client.on('message_ack', async (msg, ack) => { });
 
 client.on('message_create', async msg => {
+    if (!msg || !msg.from || msg.isGroup || msg.isStatus) { return; }
+    if (!botReady || !botPhoneNumber) { console.log("[WARN] Bot não pronto. Ignorando msg."); return; }
+
     const fromId = msg.from;
-    const toId = msg.to;
     const lowerBody = msg.body?.trim().toLowerCase() ?? '';
+    const adminNumberWithSuffix = CONFIG.ADMIN_NUMBER ? `${CONFIG.ADMIN_NUMBER}@c.us` : null;
+    const isAdmin = adminNumberWithSuffix && fromId === adminNumberWithSuffix;
+    
+    // ARQUITETO: Lógica de comandos do admin foi centralizada e melhorada.
+    // Agora os comandos funcionam respondendo a uma mensagem do cliente, ou enviados diretamente ao bot.
+    if (isAdmin) {
+        const chat = await msg.getChat();
 
-    if (ignoredBots.has(fromId)) {
-        console.log(`[MENSAGEM IGNORADA] Mensagem de bot ignorado detectada de ${fromId}.`);
-        return;
-    }
+        // Comandos que operam sobre uma conversa específica (requerem citação)
+        if (msg.hasQuotedMsg) {
+            const quotedMsg = await msg.getQuotedMessage();
+            const targetChatId = quotedMsg.from;
 
-    if (toId === botPhoneNumber && (lowerBody === 'assumir' || lowerBody === 'assumindo')) {
-        console.log(`[INFO] [Takeover] Comando 'assumir' (do admin) detectado para ${fromId}`);
-        await updateChatState(fromId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, });
-        await saveBotState();
-        return;
-    }
-
-    if (msg.fromMe) {
-        if (msg.to?.endsWith('@c.us') && msg.to !== botPhoneNumber) {
-            const targetChatId = msg.to;
-            if (lowerBody.includes('assumir') || lowerBody.includes('assumindo')) {
-                console.log(`[INFO] [Takeover] Comando 'assumir' (do bot) detectado para ${targetChatId}`);
-                await updateChatState(targetChatId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, });
-                await saveBotState();
-                return;
+            if (targetChatId && targetChatId.endsWith('@c.us')) {
+                if (/^(assumir|assumindo)$/i.test(lowerBody)) {
+                    console.log(`[INFO] [Admin Command] Comando 'assumir' recebido para o chat: ${targetChatId}`);
+                    await updateChatState(targetChatId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false });
+                    await saveBotState();
+                    await sendMessageWithTyping(chat, `✅ Atendimento do contato ${targetChatId.replace('@c.us','')} assumido.`);
+                    return;
+                }
+                
+                if (/^esse contato (é|e) um bot$/i.test(lowerBody)) {
+                    const contactName = await getContactName(targetChatId);
+                    console.log(`[INFO] [Admin Command] Comando 'esse contato é um bot' recebido. Adicionando ${targetChatId} à lista de ignorados.`);
+                    ignoredBots.set(targetChatId, contactName);
+                    await sendMessageWithTyping(chat, `✅ Contato ${contactName} (${targetChatId.replace('@c.us','')}) adicionado à lista de bots ignorados. O atendimento foi encerrado.`);
+                    cleanupChatState(targetChatId);
+                    await saveBotState();
+                    return;
+                }
             }
         }
-        return;
-    }
-    
-    if (msg.author) {
-        console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${msg.from}. Autor: ${msg.author}`);
-        return;
-    }
-    
-    // ARQUITETO: Corrigido para que os comandos do admin não sejam sensíveis a maiúsculas/minúsculas
-    // e para aceitar variações (singular/plural), utilizando expressões regulares.
-    if (toId === botPhoneNumber) {
-        if (/^esse contato (é|e) um bot$/i.test(lowerBody)) { // Aceita "é" ou "e"
-            const targetChatId = msg.from;
-            const contactName = await getContactName(targetChatId);
-            console.log(`[INFO] [Admin Command] Comando 'esse contato é um bot' recebido. Adicionando ${targetChatId} à lista de ignorados.`);
-            ignoredBots.set(targetChatId, contactName);
-            await sendMessageWithTyping(await msg.getChat(), "✅ Contato adicionado à lista de bots ignorados e o atendimento foi encerrado. Ele não irá mais interagir com o bot. 🤖");
-            cleanupChatState(targetChatId);
-            await saveBotState();
+
+        // Comandos informativos (não requerem citação)
+        if (/^lista de comando(s)?$/i.test(lowerBody)) {
+            const commandsList = `*Comandos de Gerenciamento:*\n\n` +
+                                `• *assumir / assumindo*: Responda a uma mensagem do *cliente* com este comando para assumir o chat.\n\n` +
+                                `• *esse contato é um bot*: Responda a uma mensagem do *contato* com este comando para adicioná-lo à lista de ignorados.\n\n` +
+                                `• *visualizar lista de ignorados*: Mostra a lista de contatos que o bot está ignorando atualmente.\n\n` +
+                                `• *lista de comandos*: Mostra esta lista de ajuda.`;
+            await sendMessageWithTyping(chat, commandsList);
             return;
         }
 
-        if (/^visualizar lista de ignorado(s)?$/i.test(lowerBody)) { // Aceita "ignorado" ou "ignorados"
+        if (/^visualizar lista de ignorado(s)?$/i.test(lowerBody)) {
             let responseMsg = '📋 *Lista de Contatos Ignorados:*\n\n';
             if (ignoredBots.size > 0) {
                 let count = 1;
                 for (const [number, name] of ignoredBots.entries()) {
-                    responseMsg += `${count}. *${name}*\nNúmero: ${number.replace(/@c\.us$/, '')}\n\n`;
+                    responseMsg += `${count}. *${name}*\n   Número: ${number.replace(/@c\.us$/, '')}\n\n`;
                     count++;
                 }
             } else {
-                responseMsg += "Não há contatos na lista de ignorados no momento.";
+                responseMsg += "Nenhum contato na lista de ignorados.";
             }
-            await sendMessageWithTyping(await msg.getChat(), responseMsg);
-            return;
-        }
-
-        if (/^lista de comando(s)?$/i.test(lowerBody)) { // Aceita "comando" ou "comandos"
-            const commandsList = `*Comandos de Gerenciamento:*\n\n` +
-                                `• *assumir / assumindo*: Transfere o atendimento para você, desativando o bot para o contato do cliente.\n\n` +
-                                `• *esse contato é um bot*: Adiciona o contato atual à lista de ignorados, encerrando o atendimento e impedindo interações futuras do bot.\n\n` +
-                                `• *visualizar lista de ignorados*: Exibe a lista completa de contatos que o bot está ignorando atualmente.\n\n` +
-                                `• *lista de comandos*: Exibe esta lista de comandos de gerenciamento.`;
-            await sendMessageWithTyping(await msg.getChat(), commandsList);
+            await sendMessageWithTyping(chat, responseMsg);
             return;
         }
     }
 
-    if (!msg || !msg.from || !msg.from.endsWith('@c.us') || msg.isGroup || msg.isStatus) { return; }
-    if (!botReady || !botPhoneNumber) { console.log("[WARN] Bot não pronto. Ignorando msg."); return; }
-
+    if (msg.fromMe) { return; }
+    if (ignoredBots.has(fromId)) { console.log(`[MENSAGEM IGNORADA] Mensagem de bot ignorado detectada de ${fromId}.`); return; }
+    if (msg.author) { console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${fromId}. Autor: ${msg.author}`); return; }
+    
     let chat;
     try { chat = await msg.getChat(); if (!chat) { console.warn(`[WARN] [MsgCreate] Chat ${fromId} não obtido. Limpando.`); cleanupChatState(fromId); await saveBotState(); return; }
     } catch (e) { console.error(`[ERROR] [MsgCreate] Erro CRÍTICO getChat ${fromId}: ${e.message}`); cleanupChatState(fromId); await saveBotState(); return; }
 
     let currentStateData = chatStates.get(fromId); const firstInteractionInSession = !currentStateData;
     if (firstInteractionInSession) { currentStateData = getDefaultChatState(fromId); chatStates.set(fromId, currentStateData); console.log(`[INFO] [MsgCreate] Primeira interação detectada para ${fromId}.`); }
-    const { currentState: stateType, isHuman, schedulingDetails } = currentStateData;
+    const { currentState: stateType, isHuman } = currentStateData;
 
     if (stateType === STATES.INICIO && (msg.type === 'audio' || msg.type === 'ptt') && !isHuman) {
         console.log(`[INFO] [MsgCreate] Primeira interação via áudio ${fromId}. Enviando aviso e menu.`);
@@ -1264,4 +1263,3 @@ app.listen(PORT, () => {
         process.exit(1);
     });
 });
-
