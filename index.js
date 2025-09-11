@@ -110,9 +110,6 @@ const client = new Client({
     authStrategy: new LocalAuth({
         clientId: "estudio-jf-bot"
     }),
-    // ARQUITETO: A configuração 'webVersionCache' foi removida. 
-    // Isso permite que a biblioteca 'whatsapp-web.js' busque automaticamente uma versão 
-    // funcional e compatível do WhatsApp Web, resolvendo o problema de conexão após o QR Code.
     puppeteer: {
         headless: true,
         args: [
@@ -134,7 +131,7 @@ let botReady = false;
 let isSaving = false;
 let isLoading = false;
 let botStartTime = null;
-let ignoredBots = new Map(); // Alterado para Map para armazenar nome e número
+let ignoredBots = new Map();
 
 const chatStates = new Map();
 
@@ -164,7 +161,6 @@ async function enviarNotificacaoTelegram(mensagemTexto, tipoNotificacao = "ℹ�
         
         const tipoNotificacaoEscapado = escapeMarkdown(tipoNotificacao);
         const dataHoraFormatadaEscapada = escapeMarkdown(dataHoraFormatada);
-        // A variável mensagemTexto já deve vir pré-escapada
         const mensagemCompleta = `*${tipoNotificacaoEscapado}*\n_${dataHoraFormatadaEscapada}_\n\n${mensagemTexto}`;
         
         try {
@@ -224,18 +220,14 @@ async function loadBotState() {
             }
         });
         
-        // Carrega a lista de bots ignorados
         if (loadedData.ignoredBots && Array.isArray(loadedData.ignoredBots)) {
-            // Nova estrutura: array de objetos [{ number, name }]
             ignoredBots = new Map(loadedData.ignoredBots.map(bot => [bot.number, bot.name]));
             console.log(`[INFO] [Estado] Carregados ${ignoredBots.size} bots ignorados.`);
         } else if (loadedData.ignoredBots) {
-            // Estrutura antiga: Set de strings
             ignoredBots = new Map(Array.from(loadedData.ignoredBots).map(num => [num, 'N/A']));
             console.log(`[INFO] [Estado] Carregados ${ignoredBots.size} bots ignorados (formato antigo).`);
         }
         
-
         lastSessionRestart = loadedData.lastSessionRestart || Date.now();
         console.log(`[INFO] [Estado] Carregados ${loadedCount} estados de chat válidos.`);
 
@@ -285,7 +277,6 @@ async function saveBotState() {
         const stateToSave = { 
             chatStates: persistentChatStates, 
             lastSessionRestart: lastSessionRestart,
-            // Converte o Map em um array de objetos para salvar
             ignoredBots: Array.from(ignoredBots.entries()).map(([number, name]) => ({ number, name })) 
         };
         await fs.writeFile(CONFIG.BOT_STATE_FILE, JSON.stringify(stateToSave, null, 2), 'utf8');
@@ -387,11 +378,16 @@ async function sendMessageWithTyping(chat, message, baseDelay = CONFIG.TYPING_BA
 }
 
 async function greetingMessage() {
-    const now = new Date(); const hour = now.getHours();
+    // ARQUITETO: Corrigido para usar o fuso horário de São Paulo (UTC-3).
+    // O servidor pode estar em UTC, então a hora precisa ser ajustada para a saudação correta.
+    const now = new Date();
+    const hour = parseInt(now.toLocaleTimeString('pt-BR', { hour: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' }));
+
     if (hour >= 0 && hour < 12) return '☕ *Bom dia!*';
     if (hour >= 12 && hour < 18) return '🌞 *Boa tarde!*';
     return '🌙 *Boa noite!*';
 }
+
 
 async function getContactName(msgOrChatId) {
     let contactName = 'N/A'; let chatIdToUse = null;
@@ -409,7 +405,6 @@ async function getContactName(msgOrChatId) {
             console.warn(`[Util] Não foi possível obter nome do contato para ${chatIdToUse}: ${e.message}`);
         }
     }
-    // Não escapar aqui, escapar apenas ao construir a mensagem final
     return contactName;
 }
 
@@ -419,7 +414,6 @@ async function displayMenu(msg, chat, isRecall = false) {
         if (!isRecall) {
             const name = await getContactName(msg);
             const greeting = await greetingMessage();
-            // Escapar o nome aqui para uso no WhatsApp
             const welcomeMessage = `${greeting}\n\n👋 Olá ${name}! Bem-vindo(a) ao *Estúdio JF Engenharia e Design*! 🌟\n\nComo posso ajudar você hoje? Escolha uma das opções abaixo:`;
             await sendMessageWithTyping(chat, welcomeMessage); await delay(500);
         } else {
@@ -945,11 +939,7 @@ client.on('ready', async () => {
         for (const tgConfig of CONFIG.TELEGRAM_CONFIGS) {
             if (tgConfig.BOT_TOKEN && tgConfig.CHAT_ID) {
                 try {
-                    // ### CORREÇÃO APLICADA AQUI ###
-                    const botOptions = {
-                        polling: false,
-                        ...telegramRequestOptions
-                    };
+                    const botOptions = { polling: false, ...telegramRequestOptions };
                     const bot = new TelegramBot(tgConfig.BOT_TOKEN, botOptions);
                     const me = await bot.getMe();
                     console.log(`[Telegram] Conectado ao bot Telegram (Nome: ${tgConfig.NAME || 'N/A'}, User: @${me.username}) para o chat ID ${tgConfig.CHAT_ID}`);
@@ -1012,14 +1002,11 @@ client.on('message_create', async msg => {
     const toId = msg.to;
     const lowerBody = msg.body?.trim().toLowerCase() ?? '';
 
-    // Verifica se o contato está na lista de ignorados
     if (ignoredBots.has(fromId)) {
         console.log(`[MENSAGEM IGNORADA] Mensagem de bot ignorado detectada de ${fromId}.`);
         return;
     }
 
-    // Ação para o administrador
-    // Essa lógica resolve o problema de o comando 'assumir' não funcionar
     if (toId === botPhoneNumber && (lowerBody === 'assumir' || lowerBody === 'assumindo')) {
         console.log(`[INFO] [Takeover] Comando 'assumir' (do admin) detectado para ${fromId}`);
         await updateChatState(fromId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, });
@@ -1027,7 +1014,6 @@ client.on('message_create', async msg => {
         return;
     }
 
-    // Verifica se é uma mensagem do próprio bot para o cliente
     if (msg.fromMe) {
         if (msg.to?.endsWith('@c.us') && msg.to !== botPhoneNumber) {
             const targetChatId = msg.to;
@@ -1041,17 +1027,15 @@ client.on('message_create', async msg => {
         return;
     }
     
-    // Verifica se a mensagem vem de um bot.
-    // Esta parte do código foi mantida como uma tentativa de detecção
-    // porém a solução real para o loop é a lista de ignoredBots.
     if (msg.author) {
         console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${msg.from}. Autor: ${msg.author}`);
         return;
     }
     
-    // Novas funcionalidades de bot admin
+    // ARQUITETO: Corrigido para que os comandos do admin não sejam sensíveis a maiúsculas/minúsculas
+    // e para aceitar variações (singular/plural), utilizando expressões regulares.
     if (toId === botPhoneNumber) {
-        if (lowerBody === 'esse contato é um bot') {
+        if (/^esse contato (é|e) um bot$/i.test(lowerBody)) { // Aceita "é" ou "e"
             const targetChatId = msg.from;
             const contactName = await getContactName(targetChatId);
             console.log(`[INFO] [Admin Command] Comando 'esse contato é um bot' recebido. Adicionando ${targetChatId} à lista de ignorados.`);
@@ -1062,7 +1046,7 @@ client.on('message_create', async msg => {
             return;
         }
 
-        if (lowerBody === 'visualizar lista de ignorados') {
+        if (/^visualizar lista de ignorado(s)?$/i.test(lowerBody)) { // Aceita "ignorado" ou "ignorados"
             let responseMsg = '📋 *Lista de Contatos Ignorados:*\n\n';
             if (ignoredBots.size > 0) {
                 let count = 1;
@@ -1077,7 +1061,7 @@ client.on('message_create', async msg => {
             return;
         }
 
-        if (lowerBody === 'lista de comandos') {
+        if (/^lista de comando(s)?$/i.test(lowerBody)) { // Aceita "comando" ou "comandos"
             const commandsList = `*Comandos de Gerenciamento:*\n\n` +
                                 `• *assumir / assumindo*: Transfere o atendimento para você, desativando o bot para o contato do cliente.\n\n` +
                                 `• *esse contato é um bot*: Adiciona o contato atual à lista de ignorados, encerrando o atendimento e impedindo interações futuras do bot.\n\n` +
@@ -1280,3 +1264,4 @@ app.listen(PORT, () => {
         process.exit(1);
     });
 });
+
