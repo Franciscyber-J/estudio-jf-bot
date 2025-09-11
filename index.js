@@ -959,6 +959,10 @@ client.on('ready', async () => {
         botPhoneNumber = client.info.wid._serialized; console.log(`[INFO]   > Número Bot: ${botPhoneNumber}`);
     } else { console.error("[ERROR] [FATAL] Falha crítica ao obter informações do cliente. Encerrando."); process.exit(1); }
     botStartTime = Date.now(); 
+    
+    // ARQUITETO: Log de diagnóstico para o número do admin
+    console.log(`[INFO] [Admin] Número do administrador configurado: ${CONFIG.ADMIN_NUMBER || 'Não definido no .env'}`);
+
     console.log('[INFO] --- DEBUG: loadBotState ---'); 
     await loadBotState();
     console.log('[INFO] --- DEBUG: loadBotState concluído ---'); 
@@ -1011,10 +1015,16 @@ client.on('message_create', async msg => {
     const lowerBody = msg.body?.trim().toLowerCase() ?? '';
     const adminNumberWithSuffix = CONFIG.ADMIN_NUMBER ? `${CONFIG.ADMIN_NUMBER}@c.us` : null;
     const isAdmin = adminNumberWithSuffix && fromId === adminNumberWithSuffix;
+
+    // ARQUITETO: Adicionado log de depuração para verificar a identificação do admin.
+    if (CONFIG.ADMIN_NUMBER) {
+        console.log(`[DEBUG] Admin Check: fromId='${fromId}' | adminNumberWithSuffix='${adminNumberWithSuffix}' | isAdmin=${isAdmin}`);
+    }
     
     // ARQUITETO: Lógica de comandos do admin foi centralizada e melhorada.
     // Agora os comandos funcionam respondendo a uma mensagem do cliente, ou enviados diretamente ao bot.
     if (isAdmin) {
+        console.log(`[INFO] [Admin Command] Mensagem recebida do administrador: "${msg.body}"`);
         const chat = await msg.getChat();
 
         // Comandos que operam sobre uma conversa específica (requerem citação)
@@ -1263,3 +1273,4 @@ app.listen(PORT, () => {
         process.exit(1);
     });
 });
+
