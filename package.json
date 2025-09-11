@@ -11,6 +11,6 @@
     "express": "^4.19.2",
     "node-telegram-bot-api": "^0.66.0",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#webpack-exodus"
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#main"
   }
 }
