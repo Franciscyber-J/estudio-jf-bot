@@ -37,10 +37,10 @@ const STATES = Object.freeze({
     AGUARDANDO_CONFIRMACAO_DUVIDA: 'aguardando_confirmacao_duvida',
     AGUARDANDO_RESPOSTA_PRE_ESPECIALISTA: 'aguardando_resposta_pre_especialista',
     AGUARDANDO_INFO_PRE_ESPECIALISTA: 'aguardando_info_pre_especialista',
-    AGUARDANDO_CONFIRMACAO_INFO_PRE_ESPECIALISTA: 'aguardando_confirmacao_info_pre_especialista',
-    AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA: 'aguardando_confirmacao_parceria_extra',
+    AGUARDANDO_CONFIRMACAO_INFO_PRE_ESPECIALISTA: 'aguardando_confirma_info_pre_especialista',
+    AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA: 'aguardando_confirma_parceria_extra',
     AGUARDANDO_INFO_PARCERIA: 'aguardando_info_parceria',
-    AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA: 'aguardando_confirmacao_mais_info_parceria',
+    AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA: 'aguardando_confirma_mais_info_parceria',
 });
 
 const CONFIG = Object.freeze({
@@ -135,6 +135,7 @@ let botReady = false;
 let isSaving = false;
 let isLoading = false;
 let botStartTime = null;
+let ignoredBots = new Map(); // Alterado para Map para armazenar nome e número
 
 const chatStates = new Map();
 
@@ -223,6 +224,19 @@ async function loadBotState() {
                 console.warn(`[WARN] [Estado] Estado '${persistentState?.currentState}' inválido/obsoleto para ${chatId}. Ignorando.`);
             }
         });
+        
+        // Carrega a lista de bots ignorados
+        if (loadedData.ignoredBots && Array.isArray(loadedData.ignoredBots)) {
+            // Nova estrutura: array de objetos [{ number, name }]
+            ignoredBots = new Map(loadedData.ignoredBots.map(bot => [bot.number, bot.name]));
+            console.log(`[INFO] [Estado] Carregados ${ignoredBots.size} bots ignorados.`);
+        } else if (loadedData.ignoredBots) {
+            // Estrutura antiga: Set de strings
+            ignoredBots = new Map(Array.from(loadedData.ignoredBots).map(num => [num, 'N/A']));
+            console.log(`[INFO] [Estado] Carregados ${ignoredBots.size} bots ignorados (formato antigo).`);
+        }
+        
+
         lastSessionRestart = loadedData.lastSessionRestart || Date.now();
         console.log(`[INFO] [Estado] Carregados ${loadedCount} estados de chat válidos.`);
 
@@ -269,7 +283,12 @@ async function saveBotState() {
                 };
             }
         }
-        const stateToSave = { chatStates: persistentChatStates, lastSessionRestart: lastSessionRestart };
+        const stateToSave = { 
+            chatStates: persistentChatStates, 
+            lastSessionRestart: lastSessionRestart,
+            // Converte o Map em um array de objetos para salvar
+            ignoredBots: Array.from(ignoredBots.entries()).map(([number, name]) => ({ number, name })) 
+        };
         await fs.writeFile(CONFIG.BOT_STATE_FILE, JSON.stringify(stateToSave, null, 2), 'utf8');
     } catch (error) {
         console.error('[ERROR] [Estado] Erro CRÍTICO ao salvar estado:', error);
@@ -957,9 +976,9 @@ client.on('ready', async () => {
     const startupMessageForTelegram = `${escapeMarkdown(startupText)}\n${escapeMarkdown(versionText)}\n${escapeMarkdown(onlineSinceText)}`;
     const startupMessageForConsole = `${startupText}\n${versionText}\n${onlineSinceText}`;
 
-    console.log(`[DEBUG] PONTO DE ENVIO: Notificação "BOT ONLINE" prestes a ser enviada.`);
+    console.log(`[INFO] ${startupMessageForConsole}`);
+    console.log('[INFO] Digite "lista de comandos" para visualizar os comandos de gerenciamento.');
     enviarNotificacaoTelegram(startupMessageForTelegram, "✅ BOT ONLINE"); 
-    console.log(`[INFO] ${startupMessageForConsole}`); 
     await saveBotState();
 });
 
@@ -990,62 +1009,125 @@ client.on('auth_failure', msg => {
 client.on('message_ack', async (msg, ack) => { });
 
 client.on('message_create', async msg => {
-    if (msg.author) {
-        console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${msg.from}. Autor: ${msg.author}`);
+    const fromId = msg.from;
+    const toId = msg.to;
+    const lowerBody = msg.body?.trim().toLowerCase() ?? '';
+
+    // Verifica se o contato está na lista de ignorados
+    if (ignoredBots.has(fromId)) {
+        console.log(`[MENSAGEM IGNORADA] Mensagem de bot ignorado detectada de ${fromId}.`);
         return;
     }
-    if (!msg || !msg.from || !msg.from.endsWith('@c.us') || msg.isGroup || msg.isStatus) { return; }
-    if (!botReady || !botPhoneNumber) { console.log("[WARN] Bot não pronto. Ignorando msg."); return; }
+
+    // Ação para o administrador
+    // Essa lógica resolve o problema de o comando 'assumir' não funcionar
+    if (toId === botPhoneNumber && (lowerBody === 'assumir' || lowerBody === 'assumindo')) {
+        console.log(`[INFO] [Takeover] Comando 'assumir' (do admin) detectado para ${fromId}`);
+        await updateChatState(fromId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, });
+        await saveBotState();
+        return;
+    }
+
+    // Verifica se é uma mensagem do próprio bot para o cliente
     if (msg.fromMe) {
         if (msg.to?.endsWith('@c.us') && msg.to !== botPhoneNumber) {
-            const targetChatId = msg.to; const cmdBody = msg.body?.trim().toLowerCase() ?? '';
-            if (cmdBody.includes('assumir') || cmdBody.includes('assumindo')) {
+            const targetChatId = msg.to;
+            if (lowerBody.includes('assumir') || lowerBody.includes('assumindo')) {
                 console.log(`[INFO] [Takeover] Comando 'assumir' (do bot) detectado para ${targetChatId}`);
                 await updateChatState(targetChatId, { isHuman: true, humanTakeoverConfirmed: true, reminderSent: false, currentState: STATES.HUMANO_ATIVO, menuDisplayed: false, });
-                await saveBotState(); return;
+                await saveBotState();
+                return;
             }
         }
         return;
     }
-    const chatId = msg.from; const lowerBody = msg.body?.trim().toLowerCase() ?? '';
-    if (!lowerBody && (msg.type === 'e2e_notification' || msg.type === 'notification_template' || msg.type === 'gp2')) { console.log(`[INFO] [MsgCreate] Ignorando notificação vazia (${msg.type}) de ${chatId}.`); return; }
+    
+    // Verifica se a mensagem vem de um bot.
+    // Esta parte do código foi mantida como uma tentativa de detecção
+    // porém a solução real para o loop é a lista de ignoredBots.
+    if (msg.author) {
+        console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${msg.from}. Autor: ${msg.author}`);
+        return;
+    }
+    
+    // Novas funcionalidades de bot admin
+    if (toId === botPhoneNumber) {
+        if (lowerBody === 'esse contato é um bot') {
+            const targetChatId = msg.from;
+            const contactName = await getContactName(targetChatId);
+            console.log(`[INFO] [Admin Command] Comando 'esse contato é um bot' recebido. Adicionando ${targetChatId} à lista de ignorados.`);
+            ignoredBots.set(targetChatId, contactName);
+            await sendMessageWithTyping(await msg.getChat(), "✅ Contato adicionado à lista de bots ignorados e o atendimento foi encerrado. Ele não irá mais interagir com o bot. 🤖");
+            cleanupChatState(targetChatId);
+            await saveBotState();
+            return;
+        }
+
+        if (lowerBody === 'visualizar lista de ignorados') {
+            let responseMsg = '📋 *Lista de Contatos Ignorados:*\n\n';
+            if (ignoredBots.size > 0) {
+                let count = 1;
+                for (const [number, name] of ignoredBots.entries()) {
+                    responseMsg += `${count}. *${name}*\nNúmero: ${number.replace(/@c\.us$/, '')}\n\n`;
+                    count++;
+                }
+            } else {
+                responseMsg += "Não há contatos na lista de ignorados no momento.";
+            }
+            await sendMessageWithTyping(await msg.getChat(), responseMsg);
+            return;
+        }
+
+        if (lowerBody === 'lista de comandos') {
+            const commandsList = `*Comandos de Gerenciamento:*\n\n` +
+                                `• *assumir / assumindo*: Transfere o atendimento para você, desativando o bot para o contato do cliente.\n\n` +
+                                `• *esse contato é um bot*: Adiciona o contato atual à lista de ignorados, encerrando o atendimento e impedindo interações futuras do bot.\n\n` +
+                                `• *visualizar lista de ignorados*: Exibe a lista completa de contatos que o bot está ignorando atualmente.\n\n` +
+                                `• *lista de comandos*: Exibe esta lista de comandos de gerenciamento.`;
+            await sendMessageWithTyping(await msg.getChat(), commandsList);
+            return;
+        }
+    }
+
+    if (!msg || !msg.from || !msg.from.endsWith('@c.us') || msg.isGroup || msg.isStatus) { return; }
+    if (!botReady || !botPhoneNumber) { console.log("[WARN] Bot não pronto. Ignorando msg."); return; }
 
     let chat;
-    try { chat = await msg.getChat(); if (!chat) { console.warn(`[WARN] [MsgCreate] Chat ${chatId} não obtido. Limpando.`); cleanupChatState(chatId); await saveBotState(); return; }
-    } catch (e) { console.error(`[ERROR] [MsgCreate] Erro CRÍTICO getChat ${chatId}: ${e.message}`); cleanupChatState(chatId); await saveBotState(); return; }
+    try { chat = await msg.getChat(); if (!chat) { console.warn(`[WARN] [MsgCreate] Chat ${fromId} não obtido. Limpando.`); cleanupChatState(fromId); await saveBotState(); return; }
+    } catch (e) { console.error(`[ERROR] [MsgCreate] Erro CRÍTICO getChat ${fromId}: ${e.message}`); cleanupChatState(fromId); await saveBotState(); return; }
 
-    let currentStateData = chatStates.get(chatId); const firstInteractionInSession = !currentStateData;
-    if (firstInteractionInSession) { currentStateData = getDefaultChatState(chatId); chatStates.set(chatId, currentStateData); console.log(`[INFO] [MsgCreate] Primeira interação detectada para ${chatId}.`); }
+    let currentStateData = chatStates.get(fromId); const firstInteractionInSession = !currentStateData;
+    if (firstInteractionInSession) { currentStateData = getDefaultChatState(fromId); chatStates.set(fromId, currentStateData); console.log(`[INFO] [MsgCreate] Primeira interação detectada para ${fromId}.`); }
     const { currentState: stateType, isHuman, schedulingDetails } = currentStateData;
 
     if (stateType === STATES.INICIO && (msg.type === 'audio' || msg.type === 'ptt') && !isHuman) {
-        console.log(`[INFO] [MsgCreate] Primeira interação via áudio ${chatId}. Enviando aviso e menu.`);
+        console.log(`[INFO] [MsgCreate] Primeira interação via áudio ${fromId}. Enviando aviso e menu.`);
         const greeting = await greetingMessage(); const warningMsg = `${greeting}\n\n👋 Olá! Recebi seu áudio. Para prosseguir, por favor, utilize uma das opções de texto do menu abaixo. 😊`;
         await sendMessageWithTyping(chat, warningMsg); await displayMenu(msg, chat, false); return;
     }
 
-    console.log(`[INFO] --- Msg Recebida [${new Date().toLocaleTimeString('pt-BR')}] De: ${chatId} Tipo: ${msg.type} Estado: ${stateType} Humano: ${isHuman}`);
+    console.log(`[INFO] --- Msg Recebida [${new Date().toLocaleTimeString('pt-BR')}] De: ${fromId} Tipo: ${msg.type} Estado: ${stateType} Humano: ${isHuman}`);
     
     let stateChangedDuringProcessing = false;
     try {
         if (isHuman) {
             if (lowerBody === 'reiniciar' || lowerBody === 'menu') {
-                console.log(`[INFO] [MsgCreate] Comando '${lowerBody}' recebido durante atendimento humano. Reativando bot para ${chatId}.`);
+                console.log(`[INFO] [MsgCreate] Comando '${lowerBody}' recebido durante atendimento humano. Reativando bot para ${fromId}.`);
                 await displayMenu(msg, chat, true); stateChangedDuringProcessing = true;
             } else {
-                await updateChatState(chatId, {}); stateChangedDuringProcessing = true;
+                await updateChatState(fromId, {}); stateChangedDuringProcessing = true;
             }
             if (stateChangedDuringProcessing || firstInteractionInSession) { await saveBotState(); } return;
         }
 
         if (lowerBody === 'encerrar') {
-            console.log(`[INFO] [Global] Comando 'encerrar' recebido de ${chatId}.`);
+            console.log(`[INFO] [Global] Comando 'encerrar' recebido de ${fromId}.`);
             const contactName = await getContactName(msg);
-            const summaryMsg = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Cliente digitou "encerrar"\\.\n*Último estado do bot:* ${escapeMarkdown(currentStateData.currentState)}`;
+            const summaryMsg = `*Cliente:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(fromId)}\\)\n*Ação:* Cliente digitou "encerrar"\\.\n*Último estado do bot:* ${escapeMarkdown(currentStateData.currentState)}`;
             enviarNotificacaoTelegram(summaryMsg, "🚫 ATENDIMENTO ENCERRADO PELO CLIENTE");
-            await sendMessageWithTyping(chat, "Ok, atendimento encerrado. 👋"); cleanupChatState(chatId); stateChangedDuringProcessing = true;
+            await sendMessageWithTyping(chat, "Ok, atendimento encerrado. 👋"); cleanupChatState(fromId); stateChangedDuringProcessing = true;
         } else if (lowerBody === 'menu' || lowerBody === 'reiniciar') {
-            console.log(`[INFO] [Global] Comando '${lowerBody}' recebido de ${chatId} (Bot ativo) -> Exibindo Menu Curto (Estado Atual: ${stateType}).`);
+            console.log(`[INFO] [Global] Comando '${lowerBody}' recebido de ${fromId} (Bot ativo) -> Exibindo Menu Curto (Estado Atual: ${stateType}).`);
             await displayMenu(msg, chat, true); stateChangedDuringProcessing = true;
         } else {
             let detectedPackageName = null;
@@ -1053,7 +1135,7 @@ client.on('message_create', async msg => {
                 for (const keyword in PACOTES_KEYWORDS) { if (lowerBody.includes(keyword)) { detectedPackageName = PACOTES_KEYWORDS[keyword]; break; } }
             }
             if (detectedPackageName) {
-                console.log(`[INFO] [PackageDetect] Pacote '${detectedPackageName}' detectado para ${chatId}.`);
+                console.log(`[INFO] [PackageDetect] Pacote '${detectedPackageName}' detectado para ${fromId}.`);
                 const contactName = await getContactName(msg); let responseMessage = "";
                 if (detectedPackageName === "Projeto de Impermeabilização") {
                     responseMessage = `Olá ${contactName}! Que bom que você está buscando soluções para *impermeabilização*. 👍\n\nSeu contato sobre o *${detectedPackageName}* já foi direcionado a um de nossos especialistas na área. Ele(a) possui o conhecimento técnico ideal para te ajudar com as melhores soluções!\n\nAguarde só um momento, que logo ele(a) entrará em contato por aqui mesmo. Se precisar de outras opções, é só digitar *menu*.`;
@@ -1061,20 +1143,20 @@ client.on('message_create', async msg => {
                     responseMessage = `Olá ${contactName}! Que ótimo seu interesse no *${detectedPackageName}*! ✨\n\nJá estou encaminhando você para um de nossos especialistas, que entrará em contato em instantes.\n\nPara elaborarmos uma proposta sob medida para você, nosso formulário de orçamento é uma ferramenta chave! Ele nos permite captar todos os detalhes importantes para um projeto personalizado.\n➡️ *Formulário para Orçamento Personalizado:* ${CONFIG.FORM_LINK_ORCAMENTO}\n\nNosso consultor irá solicitar o preenchimento para detalhar seu orçamento. Se quiser adiantar, pode preencher agora. Caso contrário, não tem problema, ele te guiará depois. O importante é que seu atendimento está garantido!\n\nEnquanto isso, se precisar de outras informações ou voltar ao menu principal, é só digitar *menu*.`;
                 }
                 await sendMessageWithTyping(chat, responseMessage);
-                const notificacaoMsgTelePacote = `*Usuário \\(WA\\):* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Origem:* Interesse no "${escapeMarkdown(detectedPackageName)}"`;
+                const notificacaoMsgTelePacote = `*Usuário \\(WA\\):* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(fromId)}\\)\n*Origem:* Interesse no "${escapeMarkdown(detectedPackageName)}"`;
                 enviarNotificacaoTelegram(notificacaoMsgTelePacote, "🔔 SOLICITAÇÃO DE ATENDIMENTO HUMANO");
-                await updateChatState(chatId, { currentState: STATES.HUMANO_ATIVO, isHuman: true, humanTakeoverConfirmed: false, reminderSent: false, menuDisplayed: false });
+                await updateChatState(fromId, { currentState: STATES.HUMANO_ATIVO, isHuman: true, humanTakeoverConfirmed: false, reminderSent: false, menuDisplayed: false });
                 stateChangedDuringProcessing = true;
             } else {
                 const passiveStates = [ STATES.PRE_AGENDAMENTO_CONCLUIDO, STATES.DUVIDA_REGISTRADA, STATES.PARCERIA_INFO_DADA, STATES.FORMULARIO_INSTRUCOES_DADAS ];
                 if (passiveStates.includes(stateType)) {
                     const ackWordsRegex = /^\s*(ok|obg|obrigado|grato|vlw|valeu|👍|beleza|blz|certo|entendi|entendido|👍🏻|👍🏼|👍🏽|👍🏾|👍🏿)\s*$/i;
-                    if (msg.type === 'chat' && ackWordsRegex.test(lowerBody)) { await updateChatState(chatId, {}); stateChangedDuringProcessing = true; }
-                    else { const reminderMsg = MENSAGENS_ESTADO_PASSIVO[stateType]; if (reminderMsg) { await sendMessageWithTyping(chat, reminderMsg); } else { await sendMessageWithTyping(chat, "O atendimento anterior foi concluído. Se precisar de algo mais, digite *menu*."); } await updateChatState(chatId, {}); stateChangedDuringProcessing = true; }
+                    if (msg.type === 'chat' && ackWordsRegex.test(lowerBody)) { await updateChatState(fromId, {}); stateChangedDuringProcessing = true; }
+                    else { const reminderMsg = MENSAGENS_ESTADO_PASSIVO[stateType]; if (reminderMsg) { await sendMessageWithTyping(chat, reminderMsg); } else { await sendMessageWithTyping(chat, "O atendimento anterior foi concluído. Se precisar de algo mais, digite *menu*."); } await updateChatState(fromId, {}); stateChangedDuringProcessing = true; }
                 } else {
                     const mediaAllowedStates = [ STATES.AGUARDANDO_DESCRICAO_DUVIDA, STATES.AGUARDANDO_INFO_PRE_ESPECIALISTA, STATES.AGUARDANDO_INFO_PARCERIA ];
                     const isMediaAllowedInCurrentState = mediaAllowedStates.includes(stateType);
-                    if (msg.hasMedia && !isMediaAllowedInCurrentState) { const msgRejeicaoAtivo = MENSAGENS_MIDIA_INESPERADA_ATIVO[stateType] || MENSAGENS_MIDIA_INESPERADA_ATIVO.GENERICO_MIDIA_NAO_PERMITIDA; await sendMessageWithTyping(chat, msgRejeicaoAtivo); await updateChatState(chatId, {}); stateChangedDuringProcessing = true;
+                    if (msg.hasMedia && !isMediaAllowedInCurrentState) { const msgRejeicaoAtivo = MENSAGENS_MIDIA_INESPERADA_ATIVO[stateType] || MENSAGENS_MIDIA_INESPERADA_ATIVO.GENERICO_MIDIA_NAO_PERMITIDA; await sendMessageWithTyping(chat, msgRejeicaoAtivo); await updateChatState(fromId, {}); stateChangedDuringProcessing = true;
                     } else {
                         const greetingRegex = /^\s*(oi+|ol[aá]+|bom\s+dia|boa\s+tarde|boa\s+noite|opa+|eai+|eae+|salve+|koe+|blz|beleza)\s*$/i; const isGreeting = greetingRegex.test(lowerBody);
                         const noResetStatesOnGreeting = [ STATES.AGUARDANDO_CONFIRMACAO_DUVIDA, STATES.AGUARDANDO_RESPOSTA_PRE_ESPECIALISTA, STATES.AGUARDANDO_CONFIRMACAO_INFO_PRE_ESPECIALISTA, STATES.AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA, STATES.AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA, STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES, STATES.AGUARDANDO_INFO_PRE_ESPECIALISTA, STATES.AGUARDANDO_INFO_PARCERIA, STATES.AGUARDANDO_DESCRICAO_DUVIDA, STATES.AGUARDANDO_OPCAO_ORCAMENTO, STATES.AGUARDANDO_MODO_AGENDAMENTO ];
@@ -1098,9 +1180,9 @@ client.on('message_create', async msg => {
             }
         }
     } catch (handlerError) {
-        console.error(`[ERROR] [MsgCreate] Erro CRÍTICO estado '${stateType}' (${chatId}):`, handlerError);
-        try { await sendMessageWithTyping(chat, "😕 Desculpe, ocorreu um erro inesperado. Tente novamente ou digite *menu*."); await updateChatState(chatId, { currentState: STATES.INICIO, menuDisplayed: false }); stateChangedDuringProcessing = true;
-        } catch (fallbackError) { console.error(`[ERROR] [MsgCreate] Erro fallback (${chatId}):`, fallbackError); cleanupChatState(chatId); stateChangedDuringProcessing = true; }
+        console.error(`[ERROR] [MsgCreate] Erro CRÍTICO estado '${stateType}' (${fromId}):`, handlerError);
+        try { await sendMessageWithTyping(chat, "😕 Desculpe, ocorreu um erro inesperado. Tente novamente ou digite *menu*."); await updateChatState(fromId, { currentState: STATES.INICIO, menuDisplayed: false }); stateChangedDuringProcessing = true;
+        } catch (fallbackError) { console.error(`[ERROR] [MsgCreate] Erro fallback (${fromId}):`, fallbackError); cleanupChatState(fromId); stateChangedDuringProcessing = true; }
     } finally { if (stateChangedDuringProcessing || firstInteractionInSession) { await saveBotState(); } }
 });
 
