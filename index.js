@@ -41,6 +41,7 @@ const STATES = Object.freeze({
     AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA: 'aguardando_confirma_parceria_extra',
     AGUARDANDO_INFO_PARCERIA: 'aguardando_info_parceria',
     AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA: 'aguardando_confirma_mais_info_parceria',
+    BOT_BLOQUEADO: 'bot_bloqueado', // <-- ADICIONADO (Patch 1)
 });
 
 const CONFIG = Object.freeze({
@@ -48,7 +49,7 @@ const CONFIG = Object.freeze({
     INACTIVE_SESSION_TIMEOUT: 3600000,
     MENU_RESET_TIMEOUT: 1800000,
     HUMAN_REMINDER_TIMEOUT: 600000,
-    MAX_INVALID_ATTEMPTS: 2,
+    MAX_INVALID_ATTEMPTS: 3, // <-- MODIFICADO (Patch 2)
     FORM_LINK_ORCAMENTO: 'https://forms.gle/NVqAKXXTLnw5ZVfk6',
     EMAIL_PARCEIROS: 'parceiros@estudiojf.com.br',
     SITE_URL: 'https://www.estudiojf.com.br',
@@ -296,13 +297,15 @@ async function updateChatState(chatId, updates) {
 
     const passiveOrFinalStates = [
         STATES.PRE_AGENDAMENTO_CONCLUIDO, STATES.DUVIDA_REGISTRADA, STATES.PARCERIA_INFO_DADA,
-        STATES.FORMULARIO_INSTRUCOES_DADAS, STATES.HUMANO_ATIVO, STATES.INICIO
+        STATES.FORMULARIO_INSTRUCOES_DADAS, STATES.HUMANO_ATIVO, STATES.INICIO,
+        STATES.BOT_BLOQUEADO // <-- ADICIONADO
     ];
     const isChangingToMenuOrInicio = (newStateData.currentState === STATES.INICIO || newStateData.currentState === STATES.AGUARDANDO_OPCAO_MENU) && previousState.currentState !== newStateData.currentState;
     const isTakingValidAction = updates.currentState && !passiveOrFinalStates.includes(updates.currentState) && !isChangingToMenuOrInicio;
     const isResettingFromPassive = passiveOrFinalStates.includes(previousState.currentState) && (newStateData.currentState === STATES.INICIO || newStateData.currentState === STATES.AGUARDANDO_OPCAO_MENU);
 
-    if (isChangingToMenuOrInicio || isTakingValidAction || isResettingFromPassive) {
+    // Não reseta tentativas se estiver mudando PARA bot_bloqueado
+    if ((isChangingToMenuOrInicio || isTakingValidAction || isResettingFromPassive) && newStateData.currentState !== STATES.BOT_BLOQUEADO) {
         newStateData.invalidAttempts = 0;
     }
 
@@ -470,6 +473,7 @@ async function confirmarPreAgendamento(msg, chat, currentState) {
     }
 }
 
+// --- INÍCIO DA MODIFICAÇÃO (Patch 3) ---
 async function handleInvalidResponse(msg, chat, currentState) {
     const chatId = chat.id._serialized;
     const currentStateType = currentState.currentState;
@@ -485,29 +489,29 @@ async function handleInvalidResponse(msg, chat, currentState) {
 
     try {
         const formatoExemploAgendamento = `Por favor, informe o *Dia da Semana*, a *Data* (opcional) e o *Período* (manhã/tarde/noite) juntos.\n\n*Exemplo:* _Terça-feira, 05/05, à noite_`;
-        let errorMessage = ''; let resetAttemptsHere = false; let showMainMenu = false;
+        let errorMessage = '';
 
         if (currentAttempts >= CONFIG.MAX_INVALID_ATTEMPTS) {
-            console.log(`[WARN] [handleInvalidResponse] Máximo de tentativas (${currentAttempts}) atingido para ${chatId} no estado ${currentStateType}.`);
-            resetAttemptsHere = true;
-            if (inOrcamento && currentStateType === STATES.AGUARDANDO_OPCAO_ORCAMENTO) {
-                errorMessage = `🤔 Para prosseguirmos com o orçamento, por favor, escolha uma opção válida:\n• Digite *1* para preencher o formulário online.\n• Digite *2* para solicitar um pré-agendamento de conversa.\n\nOu digite *menu* para voltar às opções principais.`;
-            } else {
-                switch(currentStateType) {
-                    case STATES.AGUARDANDO_OPCAO_MENU: errorMessage = "🤔 Desculpe, não consegui entender. Vou te mostrar o menu principal novamente para facilitar."; showMainMenu = true; break;
-                    case STATES.AGUARDANDO_MODO_AGENDAMENTO: errorMessage = `🤔 Por favor, escolha como prefere o atendimento:\n• Digite *1* para Online (Videochamada).\n• Digite *2* para Presencial.\n\nOu digite *menu* para voltar.`; break;
-                    case STATES.AGUARDANDO_PRE_AGENDAMENTO_DETALHES: errorMessage = `😕 Desculpe, não consegui identificar o dia e o período na sua mensagem.\n\n${formatoExemploAgendamento}\n\nSe preferir, digite *menu* para voltar ou *encerrar* para cancelar.`; break;
-                    case STATES.AGUARDANDO_POS_PORTFOLIO: errorMessage = `🤔 Desculpe, não entendi. Após ver nosso portfólio, o que gostaria de fazer?\n• Digite *3* para solicitar um *orçamento*.\n• Digite *4* para falar com um *especialista*.\n\nOu digite *menu* para ver todas as opções novamente.`; break;
-                    case STATES.AGUARDANDO_POS_SERVICOS: errorMessage = `🤔 Desculpe, não entendi. Após ver nossos serviços, por favor, escolha:\n• Digite *3* para solicitar um *orçamento*.\n• Digite *menu* para voltar às opções principais.`; break;
-                    case STATES.AGUARDANDO_CONFIRMACAO_DUVIDA: case STATES.AGUARDANDO_RESPOSTA_PRE_ESPECIALISTA: case STATES.AGUARDANDO_CONFIRMACAO_INFO_PRE_ESPECIALISTA: case STATES.AGUARDANDO_CONFIRMACAO_PARCERIA_EXTRA: case STATES.AGUARDANDO_CONFIRMACAO_MAIS_INFO_PARCERIA: errorMessage = `❓ Resposta não reconhecida.\n\nPor favor, responda apenas com *'sim'* ou *'não'*. Se preferir, digite *menu* para voltar.`; break;
-                    case STATES.AGUARDANDO_INFO_PRE_ESPECIALISTA: case STATES.AGUARDANDO_INFO_PARCERIA: errorMessage = `📝 Por favor, envie a informação complementar (texto, áudio, documento) ou digite *menu* para cancelar/voltar.`; break;
-                    case STATES.AGUARDANDO_DESCRICAO_DUVIDA: errorMessage = "💬 Por favor, *descreva sua dúvida* ou necessidade (ou envie um arquivo/áudio). Se preferir, digite *menu* ou *encerrar*."; break;
-                    default: errorMessage = "🤔 Desculpe, não consegui entender. Vou te mostrar o menu principal novamente para facilitar."; showMainMenu = true; break;
-                }
-            }
-            await sendMessageWithTyping(chat, errorMessage);
-            if (resetAttemptsHere) { await updateChatState(chatId, { invalidAttempts: 0 }); console.log(`[INFO] [handleInvalidResponse] Tentativas resetadas para ${chatId}.`); }
-            if (showMainMenu) { await displayMenu(msg, chat, true); }
+            console.log(`[WARN] [handleInvalidResponse] Máximo de tentativas (${currentAttempts}) atingido para ${chatId}. BLOQUEANDO CONTATO (suspeita de bot).`);
+            
+            // Mensagem final de bloqueio
+            const blockMessage = `😕 Você atingiu o número máximo de tentativas de resposta.
+
+Para evitar loops, o atendimento automático foi desativado para este contato.
+
+Se você for humano e quiser recomeçar, por favor, digite a palavra-chave exata:
+*reiniciar*`;
+            
+            await sendMessageWithTyping(chat, blockMessage);
+            
+            // Define o estado como BOT_BLOQUEADO e não reseta as tentativas
+            await updateChatState(chatId, { currentState: STATES.BOT_BLOQUEADO }); 
+            
+            // Envia notificação para o Telegram
+            const contactName = await getContactName(msg);
+            const notificacaoMsgTele = `*Contato:* ${escapeMarkdown(contactName)} \\(${escapeMarkdown(chatId)}\\)\n*Ação:* Contato bloqueado por suspeita de bot \\(3 tentativas inválidas\\)\\.\n*Último estado:* ${escapeMarkdown(currentStateType)}`;
+            enviarNotificacaoTelegram(notificacaoMsgTele, "🔒 CONTATO BLOQUEADO (BOT)");
+
         } else {
             if (inOrcamento && currentStateType === STATES.AGUARDANDO_OPCAO_ORCAMENTO) { errorMessage = `🤔 Opção inválida no menu de orçamento. Por favor, escolha:\n• Digite *1* para o formulário online.\n• Digite *2* para pré-agendar uma conversa.\n• Digite *menu* para voltar.`;
             } else {
@@ -535,6 +539,7 @@ async function handleInvalidResponse(msg, chat, currentState) {
         }
     }
 }
+// --- FIM DA MODIFICAÇÃO (Patch 3) ---
 
 async function displayOrcamentoSubMenu(msg, chat) {
     const chatId = chat.id._serialized;
@@ -1086,12 +1091,46 @@ client.on('message_create', async msg => {
     if (ignoredBots.has(fromId)) { console.log(`[MENSAGEM IGNORADA] Mensagem de bot ignorado detectada de ${fromId}.`); return; }
     if (msg.author) { console.log(`[MENSAGEM IGNORADA] Mensagem de conta comercial/bot detectada de ${fromId}. Autor: ${msg.author}`); return; }
     
-    let chat;
+    // --- INÍCIO DA MODIFICAÇÃO DE BLOQUEIO (Patch 4a) ---
+    let currentStateData = chatStates.get(fromId);
+    const firstInteractionInSession = !currentStateData;
+    
+    let chat; // Definido aqui para estar acessível
+
+    // Verifica se o contato está bloqueado
+    if (currentStateData && currentStateData.currentState === STATES.BOT_BLOQUEADO) {
+        if (lowerBody === 'reiniciar') {
+            console.log(`[INFO] [Bot Block] Contato ${fromId} enviou 'reiniciar'. Desbloqueando e exibindo menu.`);
+            try {
+                chat = await msg.getChat();
+                if (chat) {
+                    await displayMenu(msg, chat, false); // Exibe o menu completo
+                    await saveBotState();
+                } else {
+                    console.warn(`[WARN] [Bot Block] Chat ${fromId} não encontrado para reiniciar. Limpando estado.`);
+                    cleanupChatState(fromId);
+                    await saveBotState();
+                }
+            } catch (e) {
+                console.error(`[ERROR] [Bot Block] Erro ao tentar reiniciar ${fromId}: ${e.message}`);
+                cleanupChatState(fromId);
+                await saveBotState();
+            }
+            return; // Encerra o processamento aqui
+        } else {
+            // Se estiver bloqueado e não for 'reiniciar', ignora a mensagem
+            console.log(`[INFO] [Bot Block] Mensagem ignorada de ${fromId} (bloqueado). Body: "${msg.body}"`);
+            return;
+        }
+    }
+
+    // Se não estiver bloqueado, continua o fluxo normal
     try { chat = await msg.getChat(); if (!chat) { console.warn(`[WARN] [MsgCreate] Chat ${fromId} não obtido. Limpando.`); cleanupChatState(fromId); await saveBotState(); return; }
     } catch (e) { console.error(`[ERROR] [MsgCreate] Erro CRÍTICO getChat ${fromId}: ${e.message}`); cleanupChatState(fromId); await saveBotState(); return; }
 
-    let currentStateData = chatStates.get(fromId); const firstInteractionInSession = !currentStateData;
     if (firstInteractionInSession) { currentStateData = getDefaultChatState(fromId); chatStates.set(fromId, currentStateData); console.log(`[INFO] [MsgCreate] Primeira interação detectada para ${fromId}.`); }
+    // --- FIM DA MODIFICAÇÃO DE BLOQUEIO (Patch 4a) ---
+
     const { currentState: stateType, isHuman } = currentStateData;
 
     if (stateType === STATES.INICIO && (msg.type === 'audio' || msg.type === 'ptt') && !isHuman) {
@@ -1192,6 +1231,13 @@ setInterval(async () => {
         if (!state) continue;
 
         const { lastTimestamp, currentState: stateType, isHuman, humanTakeoverConfirmed, reminderSent } = state;
+
+        // --- INÍCIO DA MODIFICAÇÃO DE INATIVIDADE (Patch 4b) ---
+        // Se o bot estiver bloqueado, pule TODAS as verificações de inatividade.
+        if (stateType === STATES.BOT_BLOQUEADO) {
+            continue;
+        }
+        // --- FIM DA MODIFICAÇÃO DE INATIVIDADE (Patch 4b) ---
 
         if (typeof lastTimestamp !== 'number' || lastTimestamp > now) {
             console.warn(`[WARN] [Inatividade] Timestamp inválido para ${chatId}. Removendo.`);
